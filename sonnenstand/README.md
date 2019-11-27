@@ -1,0 +1,1 @@
+# Sonnenstand und Tageszeiten berechnen
