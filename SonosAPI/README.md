@@ -17,6 +17,9 @@ dafür wird verwiesen auf:
 und den die SonosAPI betreffenden Thread im ioBroker Forum:
 - https://forum.iobroker.net/topic/22888/gel%C3%B6st-sonos-http-api-installation-f%C3%BCr-newbies-dummies-und-mich/
 
+Soll für Text-To-Speach die [SSML Funktionalität von Amazon Polly](https://docs.aws.amazon.com/polly/latest/dg/supportedtags.html) verwendet werden, muss der SonosAPI Server mit einer Modifikation betrieben werden:
+- https://github.com/jishi/node-sonos-http-api/pull/737
+
 Eine weitere Voraussetzung ist das Vorhandensein der ebenfalls in diesem Repository zu findenden logging Funktion:
 https://github.com/dwm66/iobroker-scripts/tree/master/debug-log
 
