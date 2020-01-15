@@ -313,11 +313,6 @@ function sayExtended (ZoneName, theObj ) {
 }
 
 function createSubscribes(){
-    // mute
-    on({id: Array.prototype.slice.apply($(basePath+".*.action.mute")), val: true, ack: false, change:"any"}, function (obj) {
-        dwmlog("Mute action from "+JSON.stringify(obj),4);
-    });
-    
     // play
     on({id: Array.prototype.slice.apply($(basePath+".*.action.play")), val: true, ack: false, change:"any"}, function (obj) {
         dwmlog("Play action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
