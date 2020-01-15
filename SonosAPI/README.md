@@ -175,8 +175,7 @@ In einigen Punkten jedoch wurde ein erweitertes Verhalten eingebaut:
 - AlbumURL: Manchmal wird von der SonosAPI keine AlbumURL gesendet. Das Script setzt in diesem Fall die entsprechenden Datenpunkte auf ein "Fallback" Icon.
 
 # Beschränkungen
-Die meisten Beschränkungen liegen in der Funktion der SonosAPI selbst begründet.
-Folgendes ist mir gerade bekannt:
+
 - Probleme bei An- und Abschalten von Sonos: Die SonosAPI reagiert nicht sehr 
   gut auf das Abschalten von Sonos-Geräten (also wirklich das Trennen vom Netz).
   Die Erkennung der Topologieänderung dauert sehr lange. Solange diese Änderung
