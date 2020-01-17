@@ -192,10 +192,24 @@ In einigen Punkten jedoch wurde ein erweitertes Verhalten eingebaut:
   in die Sonos Favorites.
 - Gruppierungsfunktionen sind noch nicht implementiert.
 - Gruppen-Volume Funktionen sind nohc nicht implementiert.
-- keine Unterstützung von clipVolume bei clipAll/sayAll
+- ~~keine Unterstützung von clipVolume bei clipAll/sayAll~~
 
 # Todos
+
 - Group Funktionalität: /join /leave, Coordinator List ...
 - Group Volume show/set
 - elapsedTime verbessern, das Script könnte hier selbst einen Zähler starten.
 - Amazon Music, Spotify
+- presets unterstützen
+- Setzen der transporturi unterstützen
+- SPDIF Funktionen der playbar (TV Mode)
+
+# Changelog
+
+- Version 0.8.1
+	- Versionen eingeführt
+	- Bugfix: Webhook Handler verursacht keine Netzwerkfehlermeldungen mehr bei der SonosAPI
+	- Bugfix: Mute unter den Action Datenpunkten entfernt, da nicht gebraucht.
+	- neuer Datenpunkt: state/currentTrack/niceInfoHTML - Generierte Zusammenfassung von Titel, Artist, Album, StationName
+	- Datenpunkt genericSetting/clipAllVolume für einstellbare Lautstärke bei clipAll und sayAll
+	- 

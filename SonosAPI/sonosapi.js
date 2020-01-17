@@ -7,6 +7,8 @@ var debugchannel = 'info';
 var AdapterId = "javascript."+instance;
 var develMode = false;
 
+var version = "0.8.1";
+
 /**********************************************************************************************/
 // Modify these settings
 // BaseURL: the URL of the SonosAPI. Example: "http://10.22.1.40:5005"
@@ -39,7 +41,6 @@ var TempSensorId = "hm-rpc.0.HEQ0237303.1.TEMPERATURE"/*Aussentemperatur Balkon:
 var fallbackAlbumURL = 'https://10.22.1.40:8082/icons-mfd-svg/audio_volume_mid.svg';
 
 /**********************************************************************************************/
-
 
 var basePath = AdapterId+".SonosAPI.Rooms";
 
@@ -106,6 +107,42 @@ function getAlbumUri(stateData,absolute){
     return result;
 }
 
+function getNiceElement(stateElement,htmlElement){
+    result = "";
+    if (stateElement !== undefined && stateElement !== null && !stateElement.includes('x-sonos')){
+        if (htmlElement !== "")
+            result = "<"+htmlElement+">"+stateElement+"</"+htmlElement+"><br/>";
+        else
+            result = stateElement+'</br>';
+    }
+
+    return result;
+}
+
+function getURIType (stateData) {
+    var result = stateData.currentTrack.type;
+
+    return result;
+}
+
+function getNiceHTMLInfo(stateData) {
+    let result = "";
+    result += getNiceElement(stateData.currentTrack.title,'b');
+    if ( stateData.currentTrack.type == 'radio' ){
+        if (stateData.currentTrack.title != stateData.currentTrack.artist && stateData.currentTrack.artist != stateData.currentTrack.stationName)
+            result += getNiceElement(stateData.currentTrack.artist,'i');
+        if (stateData.currentTrack.title != stateData.currentTrack.stationName)
+            result += getNiceElement(stateData.currentTrack.stationName,'');
+    } else {
+        if (stateData.currentTrack.title != stateData.currentTrack.artist && stateData.currentTrack.artist != stateData.currentTrack.album)
+            result += getNiceElement(stateData.currentTrack.artist,'i');
+        if (stateData.currentTrack.title != stateData.currentTrack.album)
+            result += getNiceElement(stateData.currentTrack.album,'');
+    }
+
+    return result;
+}
+
 function processState(ZoneName,stateData){
     dwmlog ("Sonos processState for Zone "+ZoneName+" with data: "+JSON.stringify(stateData),4);
     setStateProtected(basePath+"."+ZoneName+".state.volume",stateData.volume,true);
@@ -126,7 +163,7 @@ function processState(ZoneName,stateData){
     setStateProtected(basePath+"."+ZoneName+".state.currentTrack.stationName",stateData.currentTrack.stationName,true);    
     setStateProtected(basePath+"."+ZoneName+".state.currentTrack.albumArtUri",getAlbumUri( stateData, false),true);
     setStateProtected(basePath+"."+ZoneName+".state.currentTrack.absoluteAlbumArtUri",getAlbumUri(stateData, true),true);
-    // setStateProtected(basePath+"."+ZoneName+".state.currentTrack.absoluteAlbumArtUri","aa",true);
+    setStateProtected(basePath+"."+ZoneName+".state.currentTrack.niceInfoHTML",getNiceHTMLInfo(stateData),true);
 
     setState(basePath+"."+ZoneName+".state.trackNo",stateData.trackNo,true);
     setState(basePath+"."+ZoneName+".state.elapsedTime",stateData.elapsedTime,true);
@@ -164,6 +201,7 @@ function initSingleZone(zoneData,coordinator,forceCreate){
     createOrSetState(basePath+"."+ZoneName+".state.currentTrack.stationName",zoneData.state.currentTrack.stationName,forceCreate,{ type: "string", name: "Sonos current station name for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".state.currentTrack.albumArtUri",getAlbumUri( zoneData.state, false),forceCreate,{ type: "string", name: "Sonos album art for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".state.currentTrack.absoluteAlbumArtUri",getAlbumUri( zoneData.state, true),forceCreate,{ type: "string", name: "Sonos absolute album art URI for "+zoneData.roomName});
+    createOrSetState(basePath+"."+ZoneName+".state.currentTrack.niceInfoHTML",getNiceHTMLInfo( zoneData.state ),forceCreate,{ type: "string", name: "Sonos absolute album art URI for "+zoneData.roomName});
 
     createOrSetState(basePath+"."+ZoneName+".state.trackNo",zoneData.state.trackNo,forceCreate,{ type: "number", name: "Sonos track number for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".state.elapsedTime",zoneData.state.elapsedTime,forceCreate,{ type: "number", name: "Sonos track elapsed time for "+zoneData.roomName});
@@ -313,6 +351,11 @@ function sayExtended (ZoneName, theObj ) {
 }
 
 function createSubscribes(){
+    // mute
+    on({id: Array.prototype.slice.apply($(basePath+".*.action.mute")), val: true, ack: false, change:"any"}, function (obj) {
+        dwmlog("Mute action from "+JSON.stringify(obj),4);
+    });
+    
     // play
     on({id: Array.prototype.slice.apply($(basePath+".*.action.play")), val: true, ack: false, change:"any"}, function (obj) {
         dwmlog("Play action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
@@ -463,16 +506,14 @@ function createSubscribes(){
     // clipAll
     on({id: AdapterId+".SonosAPI.clipAll", ack: false, change: "any"}, function(obj){
         dwmlog("Clip ALL action, playing: "+encodeURIComponent(obj.state.val),3);
-        // let vol = getState(basePath+"."+ZoneName+".settings.clipVolume").val;
-        vol=25;
+        let vol=getState(AdapterId+".SonosAPI.genericSettings.clipAllVolume").val;
         requestSonosAPI("/clipall/"+encodeURIComponent(obj.state.val)+'/'+vol);        
     });
 
     // sayAll
     on({id: AdapterId+".SonosAPI.sayAll", ack: false, change: "any"}, function(obj){
         dwmlog("Say ALL action, playing: "+encodeURIComponent(obj.state.val),3);
-        // let vol = getState(basePath+"."+ZoneName+".settings.clipVolume").val;
-        vol=25;
+        let vol=getState(AdapterId+".SonosAPI.genericSettings.clipAllVolume").val;
         requestSonosAPI("/sayall/"+encodeURIComponent(obj.state.val)+'/'+vol);        
     });
 
@@ -513,7 +554,8 @@ function processZones( AllZoneData, cbParam ) {
 
     createState(AdapterId+".SonosAPI.sayAll","",forceCreate,{ type: "string", name: "say on all players"}); 
     createState(AdapterId+".SonosAPI.clipAll","",forceCreate,{ type: "string", name: "clip on all players"}); 
-    createState(AdapterId+".SonosAPI.sayAllEx","",forceCreate,{ type: "string", name: "say on all players, extended"}); 
+    createState(AdapterId+".SonosAPI.sayAllEx","",forceCreate,{ type: "string", name: "say on all players, extended"});
+    createState(AdapterId+".SonosAPI.genericSettings.clipAllVolume",40,forceCreate,{ type: "number", name: "SonosAPI clipAll Volume"}); 
 }
 
 function processVolumeChange ( VolumeData ){
@@ -577,7 +619,7 @@ function collectRequestData(request, callback) {
             try {
                 theObj=JSON.parse(body);
             }
-            catch (theErr) { }
+            catch (theErr) { dwmlog ("JSON error: "+body+" => "+theErr.message,1,"error"); }
             callback(theObj);
         });
     }
@@ -597,9 +639,11 @@ var server = http.createServer(function(req,res){
     
     switch (req.method) {
         case 'POST':
-            dwmlog ("Received Post",4);
+            dwmlog ("Received Post",3);
             collectRequestData(req, result => {
                 dwmlog("Result: "+JSON.stringify(result),3);
+                let code = 200;
+                let answer = { result: "success" };                
                 try {
                     if (result.type) {
                         switch (result.type){
@@ -615,15 +659,35 @@ var server = http.createServer(function(req,res){
                             case "mute-change":
                                 processMuteChange(result.data);
                                 break;
+                            default:
+                                code=400;
+                                answer={ result: "error", message: "Unknown request type: "+result.type };
                         }
                     }
                 } catch (theErr) {
-                    dwmlog("Error: "+JSON.stringify(theErr),1,"error");
+                    dwmlog("Error: "+theErr.message + " from body: "+result,1,"error");
+                    code=500;
+                    answer={ result: "error", message: theErr.message };
                 }
+                res.writeHead(code, {
+                    'Content-type': 'application/json' });  
+                res.end(JSON.stringify(answer));                
             });
 
             break;
         case 'GET':
+            let code = 404;
+            let answer = { result: "error", message: "Unknown request"};
+            if (pathsplit[0]=="" && pathsplit[1]=="info") {
+                code = 200;
+                answer = { code: 200, data: { version: version }};
+                answer.data.sonosAPI=BaseURL;
+                answer.data.SSMLMode=SSMLMode;
+            }
+            res.writeHead(code, {
+                'Content-type': 'application/json' });  
+            res.end(JSON.stringify(answer));  
+            break;        
         default:
     } // switch (Method)
 });
