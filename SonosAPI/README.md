@@ -67,6 +67,20 @@ var fallbackAlbumURL = 'https://10.22.1.40:8082/icons-mfd-svg/audio_volume_mid.s
 
 
 Dann kann man das Script starten. Die Datenpunkte werden dann selbstständig vom Script angelegt.
+Will man die Datenpunkte nicht im "javascript.x" Adapter, sondern wie unter js-controller 2.0 
+möglich unter 0_userdata.0, so kann man das auch anpassen:
+
+```
+var AdapterId = "javascript."+instance;
+```
+
+muss zu
+ 
+```
+var AdapterId = "0_userdata.0";
+```
+
+geändert werden.
 
 ## Benutzung
 Die Datenpunkte geben grundsätzlich den von der SonosAPI gelieferten Zustand
@@ -84,6 +98,7 @@ Die States sind
 - playpause (schaltet zwischen "Play" und "Pause" hin und her)
 - next
 - previous
+- setTVMode: 
 
 Darüber hinaus gibt es
 - clip: Spielt einen mp3 clip ab, dieser muss sich im "clip" Verzeichnis des SonosAPI Servers befinden.
@@ -95,7 +110,11 @@ Darüber hinaus gibt es
 Alle diese States dienen zur Anzeige des aktuellen Zustands, und bei Beschreiben
 wird dieser Zustand neu gesetzt.
 
-- volume: Zeigt die Lautstärke an, setzt bei Beschreiben die neue Lautstärke
+- volume: Zeigt die Lautstärke an, setzt bei Beschreiben die neue Lautstärke. 
+  Ist der Sonos in einer Gruppe, wird in der Gruppe nur die Lautstärke dieses einen Sonos geändert, die
+  Gruppenlautstärke verändert sich entsprechend
+- groupVolume: Zeigt die Gruppenlautstärke, setzt bei Beschreiben eine neue Gruppenlautstärke.
+  Ist der Sonos in keiner Gruppe, wird damit die Lautstärke gesetzt.
 - trackNo: Aktueller Track, bei Beschreiben wird ein trackseek ausgeführt
 - mute
 - playMode/shuffle
@@ -103,6 +122,7 @@ wird dieser Zustand neu gesetzt.
 - playMode/crossfade
 - playbackStateSimple: Einfaches true/false, ist true, wenn abgespielt wird ("PLAYING"), sonst false. Setzen auf "true" sendet ein "PLAY" an die API,
   Setzen auf false sendet an die API ein "PAUSE"
+- currentTrack/uid: Zeigt die momentane AVTransportURI, bei Beschreiben wird diese neu gesetzt (setavtransporturi)
 
 Die Clip- und Say-Funktionen benutzen als Lautstärke den Wert, der bei dem entsprechenden Raum im Datenpunkt .../settings/clipVolume eingetragen ist.
 
@@ -168,6 +188,43 @@ Heute ist Dienstag, der 15. Januar
 Die Außentemperatur betragt 5 Grad
 Das wird zum Ende zu angesagt
 
+### TV Mode bei Playbar o.ä.
+Der TV Modus ist im Prinzip das Setzen des AVTransportStream auf den SPDIF Line-In
+Eingang der Playbar, das die Sonos API mit .../setavtransporturi grundsätzlich unterstützt.
+Dabei geht dann der Zustand des Players auf "PLAYING". Ein "Pause" ist anscheinend nicht
+vorgesehen, deswegen ergeben Aufrufe von .../pause und .../pauseall einen internen Server-Fehler
+auf der Sonos-API (Error 500). 
+Dafür ist im Script ein Workaround implementiert:
+- wird bei einem "pause" ein Sonos im TV-Mode anhand der URI erkannt, wird anstelle 
+eines ".../pause" die URI auf "Leer" gesetzt.
+- wird bei einem "pauseall" einer der Sonos im TV-Modus erkannt, wird er VOR 
+dem Senden von .../pauseall" an die API auf eine  leere URI gesetzt. Der aktuelle
+Wert der URI wird dabei in einer internen Variable gespeichert.
+- Auslösen von resumeall bewirkt bei Sonos, die vor dem pauseall im TV Mode waren das
+entsprechende Restaurieren der URI.
+
+Der TV-Mode kann auch durch Auslösen des "action.setTVMode" Datenpunkts ausgelöst werden. 
+Dieser Datenpunkt wird allerdings vom Script nur bei Sonos-Räumen angelegt, bei denen einmal ein
+aktiver TV Modus erkannt wurde. Will man den Punkt also haben - bei laufendem Script einmal 
+den Player manuell in den TV-Mode bringen. Das geschieht am einfachsten durch Einschalten des
+Fernsehers, die Playbar erkennt hier automatisch ein Signal am SPDIF und schaltet dann darauf um.
+
+Ebenfalls kann der TV-Modus durch das Setzen des ".action.favorite" Datenpunkts auf "TVMode"
+eingeschaltet werden (z.B. bei einer Dropdown-Liste von VIS).
+
+### Gruppierungsfunktionen
+
+Folgende Gruppenfunktionen werden aktuell vom Script unterstützt:
+
+- Im Datenpunkt ".coordinator" wird der aktuelle Koordinator einer Sonos-Zone (also eines Raums)
+  angezeigt. Damit kann man im Grunde feststellen, ob ein Sonos zu einer Gruppe gehört, schlicht
+  durch Überprüfen des ".name" Datenpunkts - wenn der Coordinator NICHT gleich dem Namen ist, wird
+  der Sonos durch einen anderen Sonos gemanagt. Das kann z.B. in VIS dadurch benutzt werden, Elemente
+  für diesen Sonos auszublenden.
+- groupVolume: Die Gruppenlautstärke sowie die Einzellautstärken in der Gruppe
+  können gesetzt werden. Ist der Sonos nicht in einer Gruppe, ist die 
+  Gruppenlautstärke der normalen Lautstärke gleichgesetzt. 
+
 ### Erweiterte Funktionalität
 Die allermeisten Funktionen des Scripts rufen direkt die SonosAPI auf und spiegeln das Verhalten des SonosAPI Servers wieder.
 In einigen Punkten jedoch wurde ein erweitertes Verhalten eingebaut:
@@ -197,12 +254,13 @@ In einigen Punkten jedoch wurde ein erweitertes Verhalten eingebaut:
 # Todos
 
 - Group Funktionalität: /join /leave, Coordinator List ...
-- Group Volume show/set
+- ~~Group Volume show/set~~
 - elapsedTime verbessern, das Script könnte hier selbst einen Zähler starten.
 - Amazon Music, Spotify
 - presets unterstützen
-- Setzen der transporturi unterstützen
-- SPDIF Funktionen der playbar (TV Mode)
+- ~~Setzen der transporturi unterstützen~~
+- ~~SPDIF Funktionen der playbar (TV Mode)~~
+
 
 # Changelog
 
@@ -212,4 +270,7 @@ In einigen Punkten jedoch wurde ein erweitertes Verhalten eingebaut:
 	- Bugfix: Mute unter den Action Datenpunkten entfernt, da nicht gebraucht.
 	- neuer Datenpunkt: state/currentTrack/niceInfoHTML - Generierte Zusammenfassung von Titel, Artist, Album, StationName
 	- Datenpunkt genericSetting/clipAllVolume für einstellbare Lautstärke bei clipAll und sayAll
-	- 
+- Version 0.9.1
+    - Setzen der TransportURI
+    - TV Mode eingeführt (nur SPDIF an der Playbar), pause und pauseall workaround.
+    - groupVolume (also Gruppenlautstärke) wird unterstützt.

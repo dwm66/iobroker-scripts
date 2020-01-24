@@ -7,7 +7,7 @@ var debugchannel = 'info';
 var AdapterId = "javascript."+instance;
 var develMode = false;
 
-var version = "0.8.1";
+var version = "0.9.1";
 
 /**********************************************************************************************/
 // Modify these settings
@@ -18,7 +18,7 @@ var BaseURL = "http://10.22.1.40:5005";
 // declared.
 // Example: 
 // var SonosAPIAuth = "Basic " + new Buffer("username" + ":" + "Password123").toString("base64");
-var SonosAPIAuth = "Basic " + new Buffer("admin" + ":" + "cxfhtge!(747543z").toString("base64");
+var SonosAPIAuth = "Basic " + new Buffer("admin" + ":" + "12345678").toString("base64");
 
 // the port where this script should be reachable from the SonosAPI webhook mechanism.
 // example: 
@@ -35,14 +35,20 @@ var webHookPort = 1884;
 var SSMLMode = "Polly";
 
 // datapoint where the sayEx function can get the current temperature 
-var TempSensorId = "hm-rpc.0.HEQ0237303.1.TEMPERATURE"/*Aussentemperatur Balkon:1.TEMPERATURE*/;
+var TempSensorId = "hm-rpc.0.ZEQ1234567.1.TEMPERATURE"/*Aussentemperatur Balkon:1.TEMPERATURE*/;
 
 // URL of a fallback album art picture
 var fallbackAlbumURL = 'https://10.22.1.40:8082/icons-mfd-svg/audio_volume_mid.svg';
 
 /**********************************************************************************************/
 
+
 var basePath = AdapterId+".SonosAPI.Rooms";
+
+// intermediate storage for paused Sonos in TV mode
+// part of workaround for https://github.com/jishi/node-sonos-http-api/issues/741
+var pauseTVBuffer = {};
+var VolumeTimeout = null;
 
 function requestSonosAPI( req, cb, cbParam ){
 
@@ -75,7 +81,7 @@ function requestSonosAPI( req, cb, cbParam ){
 }
 
 function createOrSetState(name,value,forceCreate,spec){
-    dwmlog("createOrSetState "+name+" to: "+value,4);
+    dwmlog("createOrSetState "+name+" to: "+value,5);
     if (value === undefined ) value = "n/a";
     if (getState(name).notExist) {
         dwmlog("Variable "+name+" undefined yet",4);
@@ -109,7 +115,7 @@ function getAlbumUri(stateData,absolute){
 
 function getNiceElement(stateElement,htmlElement){
     result = "";
-    if (stateElement !== undefined && stateElement !== null && !stateElement.includes('x-sonos')){
+    if (stateElement !== undefined && stateElement !== null && stateElement != "" && !stateElement.includes('x-sonos')){
         if (htmlElement !== "")
             result = "<"+htmlElement+">"+stateElement+"</"+htmlElement+"><br/>";
         else
@@ -143,6 +149,40 @@ function getNiceHTMLInfo(stateData) {
     return result;
 }
 
+/** 
+ * TV mode workaround:
+ */
+
+function isTVMode( uri ){
+    dwmlog ("isTVMode called with uri: "+uri,4);
+    if (typeof(uri)!=="string") return false;
+    result = uri.startsWith('x-sonos-htastream:') && uri.endsWith ('spdif');
+    return result;
+}
+
+function setTVModeBuffer(ZoneName, TVModeUri, sourceAction ){
+    let data = { uri: TVModeUri, sourceAction: sourceAction };
+    pauseTVBuffer[ZoneName] = data;
+    dwmlog ("setTVModeBuffer for "+ZoneName+" pauseTVBuffer is: "+JSON.stringify(pauseTVBuffer),4);    
+}
+
+function checkTVModeDatapoint(ZoneName,stateData){
+    dwmlog("Checking TV mode for "+ZoneName+" and uri "+stateData.currentTrack.uri,4);
+    if (isTVMode(stateData.currentTrack.uri)){
+        dwmlog ("TV mode detected",4);
+        if ( getState(basePath+"."+ZoneName+".action.setTVMode").notExist ){
+            createState(basePath+"."+ZoneName+".action.setTVMode",true,forceCreate,{ type: "boolean", name: "setTVMode action for "+ZoneName, role: "button"});
+            dwmlog("Created TVMode datapoint for "+ZoneName);
+        }
+    }
+}
+
+function calcTVModeUri (ZoneName){
+    return "x-sonos-htastream:"+getState(basePath+"."+ZoneName+".uuid").val+":spdif";
+}
+
+/************************************************************************************************/
+
 function processState(ZoneName,stateData){
     dwmlog ("Sonos processState for Zone "+ZoneName+" with data: "+JSON.stringify(stateData),4);
     setStateProtected(basePath+"."+ZoneName+".state.volume",stateData.volume,true);
@@ -173,6 +213,8 @@ function processState(ZoneName,stateData){
     setState(basePath+"."+ZoneName+".state.playMode.shuffle",stateData.playMode.shuffle,true);
     setState(basePath+"."+ZoneName+".state.playMode.crossfade",stateData.playMode.crossfade,true);
 
+    checkTVModeDatapoint(ZoneName, stateData );
+
     dwmlog ("processState ends",4);
 }
 
@@ -184,11 +226,14 @@ function initSingleZone(zoneData,coordinator,forceCreate){
     var ZoneName = zoneData.roomName;
 
     createOrSetState(basePath+"."+ZoneName+".name",zoneData.roomName,forceCreate,{ type: "string", name: "Sonos Roomname for "+zoneData.roomName});
+    createOrSetState(basePath+"."+ZoneName+".uuid",zoneData.uuid,forceCreate,{ type: "string", name: "Sonos UUID for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".coordinator",coordinator.roomName,forceCreate,{ type: "string", name: "Sonos Group Coordinator for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".state.volume",zoneData.state.volume,forceCreate,{ type: "number", name: "Sonos Volume for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".state.mute",zoneData.state.mute,forceCreate,{ type: "boolean", name: "Sonos Mute State for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".state.playbackState",zoneData.state.playbackState,forceCreate,{ type: "string", name: "Sonos Play State for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".state.playbackStateSimple",zoneData.state.playbackState=="PLAYING",forceCreate,{ type: "boolean", name: "Sonos Simple Play State for "+zoneData.roomName});
+
+    createOrSetState(basePath+"."+ZoneName+".state.groupVolume",zoneData.groupState.volume,forceCreate,{ type: "number", name: "Sonos group volume for "+zoneData.roomName});
 
     // current track Information
     createOrSetState(basePath+"."+ZoneName+".state.currentTrack.artist",zoneData.state.currentTrack.artist,forceCreate,{ type: "string", name: "Sonos current track artist for "+zoneData.roomName});
@@ -211,7 +256,6 @@ function initSingleZone(zoneData,coordinator,forceCreate){
     createOrSetState(basePath+"."+ZoneName+".state.playMode.shuffle",zoneData.state.playMode.shuffle,forceCreate,{ type: "boolean", name: "Sonos shuffle playmode for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".state.playMode.crossfade",zoneData.state.playMode.crossfade,forceCreate,{ type: "boolean", name: "Sonos crossfade playmode for "+zoneData.roomName});
 
-
     // create Actions
     createState(basePath+"."+ZoneName+".action.play",true,forceCreate,{ type: "boolean", name: "Play action for "+zoneData.roomName, role: "button"});
     createState(basePath+"."+ZoneName+".action.playpause",true,forceCreate,{ type: "boolean", name: "Toggle play action for "+zoneData.roomName, role: "button"});
@@ -230,6 +274,8 @@ function initSingleZone(zoneData,coordinator,forceCreate){
 
     // sayit Extended functionality
     createState(basePath+"."+ZoneName+".action.sayEx",{},forceCreate,{ type: "string", name: "Say extended action for "+zoneData.roomName});
+
+    checkTVModeDatapoint(ZoneName, zoneData.state );
 }
 
 function initZone(zoneData,forceCreate){
@@ -290,6 +336,19 @@ function canPlay(ZoneName){
     }
 
     return result;
+}
+
+function isGroupedWith( ZoneName ){
+    // check if a room is still in the list, if not, set to "inactive"
+    let resultArr = [];
+    let CoordinatorName = getState(basePath+"."+ZoneName+".coordinator").val;
+    dwmlog ("Searching group for "+ZoneName+" having coordinator "+CoordinatorName,4 );
+    $("javascript.0.SonosAPI.Rooms.*.coordinator").each(function(id,index){
+        let RoomName = getRoomFromObj(id);
+        if (getState(id).val == CoordinatorName) resultArr.push(RoomName);
+    });
+    dwmlog("Group for "+ZoneName+" is "+JSON.stringify(resultArr),4);
+    return resultArr;
 }
 
 function sayExtended (ZoneName, theObj ) {
@@ -361,15 +420,22 @@ function createSubscribes(){
         dwmlog("Play action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
         let ZoneName=getRoomFromObj(obj.id);
         if (! canPlay(ZoneName) ){
-            let newfav = getState(basePath+"."+ZoneName+".action.favorite").val;
-            if (newfav == ""){
-                newfav = getState(basePath+"."+ZoneName+".settings.defaultFavorite").val;   
+            if ( pauseTVBuffer[ZoneName] !== undefined ) {
+                // its a "paused" Sonos, which was in TV Mode before
+                dwmlog ("TV mode workaround active - setting uri to "+pauseTVBuffer[ZoneName].uri,4);
+                requestAction( getRoomFromObj(obj.id), "setavtransporturi", encodeURIComponent(pauseTVBuffer[ZoneName].uri), obj.id)
+                pauseTVBuffer[ZoneName] = undefined; // delete from Buffer afterwards
+            } else {
+                let newfav = getState(basePath+"."+ZoneName+".action.favorite").val;
+                if (newfav == ""){
+                    newfav = getState(basePath+"."+ZoneName+".settings.defaultFavorite").val;   
+                }
+                if (newfav == ""){
+                    let FavList = getState(AdapterId+".SonosAPI.FavList").val;
+                    newfav=FavList.split(';')[0];
+                } 
+                setState(basePath+"."+ZoneName+".action.favorite",newfav,false);
             }
-            if (newfav == ""){
-                let FavList = getState(AdapterId+".SonosAPI.FavList").val;
-                newfav=FavList.split(';')[0];
-            } 
-            setState(basePath+"."+ZoneName+".action.favorite",newfav,false);
         }
         else requestAction( ZoneName, "play", null, obj.id );
     });
@@ -377,7 +443,16 @@ function createSubscribes(){
     // pause
     on({id: Array.prototype.slice.apply($(basePath+".*.action.pause")), val: true, ack: false, change:"any"}, function (obj) {
         dwmlog("Pause action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
-        requestAction( getRoomFromObj(obj.id), "pause", null, obj.id );
+        
+        // workaround: SPDIF TV mode cannot be paused, causing crashes in SonosAPI
+        let ZoneName=getRoomFromObj(obj.id);
+        let uri = getState(basePath+"."+ZoneName+".state.currentTrack.uri").val;
+        if (isTVMode(uri)){
+            requestAction( getRoomFromObj(obj.id), "setavtransporturi", "", obj.id );
+            setTVModeBuffer ( ZoneName, uri, "pause" );               
+        } else {
+            requestAction( getRoomFromObj(obj.id), "pause", null, obj.id );
+        }
     });
 
     // play
@@ -403,6 +478,12 @@ function createSubscribes(){
     on({id: Array.prototype.slice.apply($(basePath+".*.state.volume")), ack: false, change:"ne"}, function (obj) {
         dwmlog("Volume change action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
         requestAction(  getRoomFromObj(obj.id), "volume", obj.state.val, obj.id)
+    });
+
+    // groupVolume change
+    on({id: Array.prototype.slice.apply($(basePath+".*.state.groupVolume")), ack: false, change:"ne"}, function (obj) {
+        dwmlog("Group volume change action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),3);
+        requestAction(  getRoomFromObj(obj.id), "groupVolume", obj.state.val, obj.id)
     });
 
     // mute change
@@ -445,7 +526,12 @@ function createSubscribes(){
             requestAction(  getRoomFromObj(obj.id), "crossfade", "off", obj.id)
         }
     });
-
+    
+    // URI change
+    on({id: Array.prototype.slice.apply($(basePath+".*.state.currentTrack.uri")), ack: false, change:"any"}, function (obj) {
+        dwmlog("URI set action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        requestAction(  getRoomFromObj(obj.id), "setavtransporturi", encodeURIComponent(obj.state.val), obj.id)
+    });
 
     // say
     on({id: Array.prototype.slice.apply($(basePath+".*.action.say")), ack: false, change:"any"}, function (obj) {
@@ -466,8 +552,11 @@ function createSubscribes(){
     // favorite
     on({id: Array.prototype.slice.apply($(basePath+".*.action.favorite")), ack: false, change:"any"}, function (obj) {
         dwmlog("Favorite action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" playing: "+encodeURIComponent(obj.state.val),4);
-        if (obj.state.val !== "")
+        if (obj.state.val === "TVMode") {
+            requestAction(  ZoneName, "setavtransporturi", encodeURIComponent(calcTVModeUri(ZoneName) ), obj.id)
+        } else if (obj.state.val !== "") {
             requestAction(  getRoomFromObj(obj.id), "favorite", encodeURIComponent(obj.state.val), obj.id)
+        }
     });
 
     // trackseek
@@ -492,15 +581,39 @@ function createSubscribes(){
         sayExtended(getRoomFromObj(obj.id), JSON.parse(obj.state.val));
     });
 
-
     // pauseAll
     on({id: AdapterId+".SonosAPI.pauseAll", val: true, change: "any"}, function(obj){
-        requestSonosAPI('/pauseall');
+        dwmlog ("PauseAll Action ",4);
+        let TVModesDetected = false;
+        $(basePath+'.*.state.currentTrack.uri').each( function (id,i){
+            dwmlog("PauseAll checks URI: "+JSON.stringify(id),4);
+            let uri=getState(id).val;
+            if (isTVMode(uri)){
+                let ZoneName = getRoomFromObj(id);
+                requestAction( ZoneName, "setavtransporturi", "", id );
+                setTVModeBuffer ( ZoneName, uri, "pauseall" );
+                TVModesDetected = true;
+            }
+        });
+
+        if (TVModesDetected)
+            setTimeout( requestSonosAPI,200,'/pauseall'); // call after short timeout
+        else 
+            requestSonosAPI('/pauseall');
     });
 
     // resumeAll
     on({id: AdapterId+".SonosAPI.resumeAll", val: true, change: "any"}, function(obj){
+        dwmlog ("resumeAll Action ",4);
         requestSonosAPI('/resumeall');
+
+        $(basePath+'.*.name').each(function (id,i){
+            let ZoneName = getState(id).val;
+            if (pauseTVBuffer[ZoneName] !== undefined && pauseTVBuffer[ZoneName].sourceAction === "pauseall"){
+                requestAction( ZoneName,  'setavtransporturi', pauseTVBuffer[ZoneName].uri);
+                pauseTVBuffer[ZoneName] = undefined;
+            }
+        });
     });
 
     // clipAll
@@ -522,11 +635,21 @@ function createSubscribes(){
         dwmlog("SayAllEx action, playing: "+obj.state.val,3);
         sayExtended("all", JSON.parse(obj.state.val));
     });
+
+    // TV mode
+    on({id: Array.prototype.slice.apply($(basePath+".*.action.setTVMode")), val: true, change:"any"}, function (obj) {
+        let ZoneName=getRoomFromObj(obj.id);
+        dwmlog("TV mode action from "+JSON.stringify(obj)+" in Room "+ZoneName,4);
+        if (obj.state.val !== "")
+            requestAction(  ZoneName, "setavtransporturi", encodeURIComponent(calcTVModeUri(ZoneName) ), obj.id)
+    });
+
+       
 }
 
 function processZones( AllZoneData, cbParam ) {
     forceCreate = false;
-    
+
     dwmlog ("Zone Data: "+JSON.stringify(AllZoneData,null,4),4);
     ZoneListArr=[];
     for (let i=0; i<AllZoneData.length; i++){
@@ -563,7 +686,15 @@ function processVolumeChange ( VolumeData ){
     
     var ZoneName = VolumeData.roomName;
 
-    setStateProtected(basePath+"."+ZoneName+".state.volume",VolumeData.newVolume,true);        
+    setStateProtected(basePath+"."+ZoneName+".state.volume",VolumeData.newVolume,true);
+    if (isGroupedWith(ZoneName).length>1){
+        dwmlog (ZoneName+" is grouped, requesting update of zones to get new group Volume",4);
+        if (VolumeTimeout != null) clearTimeout(VolumeTimeout);
+        VolumeTimeout = setTimeout(requestSonosZones,200);
+    } else {
+        // shortcut, reduce net traffic!
+        setStateProtected(basePath+"."+ZoneName+".state.groupVolume",VolumeData.newVolume,true);
+    }     
 }
 
 function processFavorites(FavData, cbParam ){
@@ -582,6 +713,11 @@ function processMuteChange( MuteData ){
 }
 
 function requestSonosZones(){
+    if (VolumeTimeout !== null){
+        clearTimeout(VolumeTimeout);
+        VolumeTimeout = null;
+    }
+        
     requestSonosAPI("/zones",processZones);    
 }
 
@@ -630,8 +766,7 @@ function collectRequestData(request, callback) {
 
 var server = http.createServer(function(req,res){
     var url_parts = url.parse(req.url, true);
-    var pos;
-    var ret = "{\"code\":\"error\"}";
+
     dwmlog(JSON.stringify(url_parts),4);
     
     var pathsplit = url_parts.pathname.split("/");
@@ -668,6 +803,7 @@ var server = http.createServer(function(req,res){
                     dwmlog("Error: "+theErr.message + " from body: "+result,1,"error");
                     code=500;
                     answer={ result: "error", message: theErr.message };
+
                 }
                 res.writeHead(code, {
                     'Content-type': 'application/json' });  
