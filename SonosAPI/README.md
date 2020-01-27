@@ -67,20 +67,7 @@ var fallbackAlbumURL = 'https://10.22.1.40:8082/icons-mfd-svg/audio_volume_mid.s
 
 
 Dann kann man das Script starten. Die Datenpunkte werden dann selbstständig vom Script angelegt.
-Will man die Datenpunkte nicht im "javascript.x" Adapter, sondern wie unter js-controller 2.0 
-möglich unter 0_userdata.0, so kann man das auch anpassen:
-
-```
-var AdapterId = "javascript."+instance;
-```
-
-muss zu
- 
-```
-var AdapterId = "0_userdata.0";
-```
-
-geändert werden.
+Ein Anlegen unter 0_userdata.0 ist nicht möglich (createState unterstützt das nicht).
 
 ## Benutzung
 Die Datenpunkte geben grundsätzlich den von der SonosAPI gelieferten Zustand
@@ -248,7 +235,7 @@ In einigen Punkten jedoch wurde ein erweitertes Verhalten eingebaut:
   Ein Workaround zum Starten von Amazon Music etc. ist die Aufnahme der Playlists oder Alben
   in die Sonos Favorites.
 - Gruppierungsfunktionen sind noch nicht implementiert.
-- Gruppen-Volume Funktionen sind nohc nicht implementiert.
+- ~~Gruppen-Volume Funktionen sind noch nicht implementiert.~~
 - ~~keine Unterstützung von clipVolume bei clipAll/sayAll~~
 
 # Todos
