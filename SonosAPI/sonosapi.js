@@ -7,7 +7,7 @@ var debugchannel = 'info';
 var AdapterId = "javascript."+instance;
 var develMode = false;
 
-var version = "0.9.1";
+var version = "0.9.5";
 
 /**********************************************************************************************/
 // Modify these settings
@@ -38,7 +38,12 @@ var SSMLMode = "Polly";
 var TempSensorId = "hm-rpc.0.ZEQ1234567.1.TEMPERATURE"/*Aussentemperatur Balkon:1.TEMPERATURE*/;
 
 // URL of a fallback album art picture
-var fallbackAlbumURL = 'https://10.22.1.40:8082/icons-mfd-svg/audio_volume_mid.svg';
+var fallbackAlbumURL = '/icons-mfd-svg/audio_sound.svg';
+var TVAlbumURL = '/icons-mfd-svg/it_television.svg';
+
+// If setting a Favorite, it is reset to "" after this time (seconds).
+// If you don't want that behavior, set to 0.
+var resetFavoriteTime = 5;
 
 /**********************************************************************************************/
 
@@ -75,7 +80,7 @@ function requestSonosAPI( req, cb, cbParam ){
         if (error === null) {
             if (cb) cb(JSON.parse(body),cbParam);             
         } else {
-            dwmlog ("Error occured during SonosAPI call: "+error,2)
+            dwmlog ("Error occured during SonosAPI call: "+error,2,"warn");
         }
     });        
 }
@@ -101,14 +106,20 @@ function setStateProtected(dp,val,ack){
 function getAlbumUri(stateData,absolute){
     var result = "";
     // dwmlog ("getAlbumUri: "+JSON.stringify(stateData),3);
-    if (absolute) result = stateData.currentTrack.absoluteAlbumArtUri; else result = stateData.currentTrack.albumArtUri;
+    if (absolute) result = stateData.currentTrack.absoluteAlbumArtUri; 
+    // else result = stateData.currentTrack.albumArtUri;
     
     if (result === undefined) {
         if (absolute) result = fallbackAlbumURL; else {
             result = url.parse(fallbackAlbumURL,true).pathname;
         }
     }
-    
+    if (stateData.currentTrack.uri.startsWith("x-file-cifs")){
+        result=fallbackAlbumURL;
+    }
+    if (isTVMode(stateData.currentTrack.uri)){
+        result=TVAlbumURL;
+    }
     // dwmlog ("getAlbumUri returning: "+result,3);
     return result;
 }
@@ -137,8 +148,11 @@ function getNiceHTMLInfo(stateData) {
     if ( stateData.currentTrack.type == 'radio' ){
         if (stateData.currentTrack.title != stateData.currentTrack.artist && stateData.currentTrack.artist != stateData.currentTrack.stationName)
             result += getNiceElement(stateData.currentTrack.artist,'i');
+        if (stateData.currentTrack.album !== undefined )
+            result += getNiceElement(stateData.currentTrack.album,'');
         if (stateData.currentTrack.title != stateData.currentTrack.stationName)
             result += getNiceElement(stateData.currentTrack.stationName,'');
+        
     } else {
         if (stateData.currentTrack.title != stateData.currentTrack.artist && stateData.currentTrack.artist != stateData.currentTrack.album)
             result += getNiceElement(stateData.currentTrack.artist,'i');
@@ -218,16 +232,27 @@ function processState(ZoneName,stateData){
     dwmlog ("processState ends",4);
 }
 
-function initSingleZone(zoneData,coordinator,forceCreate){
+function initSingleZone(zoneData,coordinator,members,forceCreate){
     if (forceCreate === undefined) forceCreate=false;
     // forceCreate=true;
 
     dwmlog ("SingleZoneInit: "+JSON.stringify(zoneData),4);
     var ZoneName = zoneData.roomName;
-
+    
+    var group = zoneData.roomName;
+    if (coordinator.roomName == zoneData.roomName ){
+        group = coordinator.roomName ;
+        if (members.length>0) group += ' / '+members.join(' / ');
+    } else {
+        group += " => "+coordinator.roomName;
+    }
+    
     createOrSetState(basePath+"."+ZoneName+".name",zoneData.roomName,forceCreate,{ type: "string", name: "Sonos Roomname for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".uuid",zoneData.uuid,forceCreate,{ type: "string", name: "Sonos UUID for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".coordinator",coordinator.roomName,forceCreate,{ type: "string", name: "Sonos Group Coordinator for "+zoneData.roomName});
+    createOrSetState(basePath+"."+ZoneName+".group",group,forceCreate,{ type: "string", name: "Sonos group for "+zoneData.roomName});
+    
+    
     createOrSetState(basePath+"."+ZoneName+".state.volume",zoneData.state.volume,forceCreate,{ type: "number", name: "Sonos Volume for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".state.mute",zoneData.state.mute,forceCreate,{ type: "boolean", name: "Sonos Mute State for "+zoneData.roomName});
     createOrSetState(basePath+"."+ZoneName+".state.playbackState",zoneData.state.playbackState,forceCreate,{ type: "string", name: "Sonos Play State for "+zoneData.roomName});
@@ -270,7 +295,10 @@ function initSingleZone(zoneData,coordinator,forceCreate){
 
     // favorite action
     createState(basePath+"."+ZoneName+".action.favorite","",forceCreate,{ type: "string", name: "Set favorite action for "+zoneData.roomName});
-    createState(basePath+"."+ZoneName+".settings.defaultFavorite","",forceCreate,{ type: "string", name: "Set favorite action for "+zoneData.roomName});
+    createState(basePath+"."+ZoneName+".action.playlist","",forceCreate,{ type: "string", name: "Set playlist action for "+zoneData.roomName});
+    createState(basePath+"."+ZoneName+".settings.defaultFavorite","",forceCreate,{ type: "string", name: "Default favorite for "+zoneData.roomName});
+    createState(basePath+"."+ZoneName+".settings.lastFavorite","",forceCreate,{ type: "string", name: "Last favorite selected for "+zoneData.roomName});
+    createState(basePath+"."+ZoneName+".settings.lastPlaylist","",forceCreate,{ type: "string", name: "Last playlist selected for "+zoneData.roomName});
 
     // sayit Extended functionality
     createState(basePath+"."+ZoneName+".action.sayEx",{},forceCreate,{ type: "string", name: "Say extended action for "+zoneData.roomName});
@@ -285,16 +313,19 @@ function initZone(zoneData,forceCreate){
     var ZoneList = [];
 
     initSingleZone(zoneData.coordinator,zoneData.coordinator,forceCreate);
-    ZoneList.push(zoneData.coordinator.roomName);
+    ZoneListObj={ name: zoneData.coordinator.roomName, isCoordinator: true,  members:[] };
 
     for (let i = 0; i<zoneData.members.length; i++){
         if (zoneData.members[i].uuid != zoneData.coordinator.uuid){
             dwmlog("Group member for "+ZoneName+" detected: "+zoneData.members[i].roomName,4);
             initSingleZone(zoneData.members[i],zoneData.coordinator,forceCreate);
-            ZoneList.push(zoneData.members[i].roomName);
+            ZoneListObj.members.push(zoneData.members[i].roomName);
+            ZoneList.push({name: zoneData.members[i].roomName, isCoordinator: false, coordinator: ZoneListObj.name });
         }
     }
- 
+
+    initSingleZone(zoneData.coordinator,zoneData.coordinator,ZoneListObj.members,forceCreate);    
+    ZoneList.push(ZoneListObj);
 
     dwmlog("ZoneList init: "+JSON.stringify(ZoneList),4);
     return ZoneList;
@@ -426,7 +457,7 @@ function createSubscribes(){
                 requestAction( getRoomFromObj(obj.id), "setavtransporturi", encodeURIComponent(pauseTVBuffer[ZoneName].uri), obj.id)
                 pauseTVBuffer[ZoneName] = undefined; // delete from Buffer afterwards
             } else {
-                let newfav = getState(basePath+"."+ZoneName+".action.favorite").val;
+                let newfav = getState(basePath+"."+ZoneName+".settings.lastFavorite").val;
                 if (newfav == ""){
                     newfav = getState(basePath+"."+ZoneName+".settings.defaultFavorite").val;   
                 }
@@ -551,12 +582,28 @@ function createSubscribes(){
 
     // favorite
     on({id: Array.prototype.slice.apply($(basePath+".*.action.favorite")), ack: false, change:"any"}, function (obj) {
-        dwmlog("Favorite action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" playing: "+encodeURIComponent(obj.state.val),4);
+        let ZoneName=getRoomFromObj(obj.id);
+        dwmlog("Favorite action from "+JSON.stringify(obj)+" in Room "+ZoneName+" playing: "+encodeURIComponent(obj.state.val),4);
         if (obj.state.val === "TVMode") {
             requestAction(  ZoneName, "setavtransporturi", encodeURIComponent(calcTVModeUri(ZoneName) ), obj.id)
         } else if (obj.state.val !== "") {
-            requestAction(  getRoomFromObj(obj.id), "favorite", encodeURIComponent(obj.state.val), obj.id)
+            requestAction(  ZoneName, "favorite", encodeURIComponent(obj.state.val), obj.id)
+            setState(basePath+"."+ZoneName+".settings.lastFavorite",obj.state.val,true);
         }
+        
+        if (resetFavoriteTime > 0)
+            setStateDelayed(basePath+"."+ZoneName+".action.favorite","",true,resetFavoriteTime*1000);
+    });
+
+    // playlist
+    on({id: Array.prototype.slice.apply($(basePath+".*.action.playlist")), ack: false, change:"any"}, function (obj) {
+        let ZoneName=getRoomFromObj(obj.id);
+        dwmlog("Playlist action from "+JSON.stringify(obj)+" in Room "+ZoneName+" playing: "+encodeURIComponent(obj.state.val),4);
+        if (obj.state.val !== "") {
+            requestAction(  ZoneName, "playlist", encodeURIComponent(obj.state.val), obj.id)
+            setState(basePath+"."+ZoneName+".settings.lastPlaylist",obj.state.val,true);
+        }
+        setStateDelayed(basePath+"."+ZoneName+".action.playlist","",true,5000);
     });
 
     // trackseek
@@ -644,7 +691,26 @@ function createSubscribes(){
             requestAction(  ZoneName, "setavtransporturi", encodeURIComponent(calcTVModeUri(ZoneName) ), obj.id)
     });
 
-       
+   // coordinator, grouping
+    on({id: Array.prototype.slice.apply($(basePath+".*.coordinator")), ack:false, change:"ne"}, function (obj) {
+        let ZoneName=getRoomFromObj(obj.id);
+        dwmlog("Coordinator set from "+JSON.stringify(obj)+" in Room "+ZoneName,4);
+        coordinators = getState(AdapterId+".SonosAPI.CoordinatorList").val.split(";");
+        if (obj.state.val !== ""){
+            if (coordinators.includes(obj.state.val) && obj.state.val!=ZoneName){
+                dwmlog("Grouping: "+ZoneName+" joins "+obj.state.val,4);
+                requestAction( ZoneName, "join", [obj.state.val], obj.id );
+            } else {
+                if (obj.state.val==ZoneName){
+                    requestAction( ZoneName, "leave", null, obj.id );
+                } else { 
+                    // TODO: reset DP when input was illegal
+                }
+            }
+        } else {
+            requestAction( ZoneName, "leave", null, obj.id );
+        }
+    }); 
 }
 
 function processZones( AllZoneData, cbParam ) {
@@ -652,16 +718,27 @@ function processZones( AllZoneData, cbParam ) {
 
     dwmlog ("Zone Data: "+JSON.stringify(AllZoneData,null,4),4);
     ZoneListArr=[];
+    ZoneListSimple=[];
+    CoordListSimple=[];
+
     for (let i=0; i<AllZoneData.length; i++){
-        ZoneListArr = ZoneListArr.concat(initZone(AllZoneData[i]));
+        let ZoneResult = initZone(AllZoneData[i])
+        ZoneListArr = ZoneListArr.concat(ZoneResult);
     }
 
+    for (let i=0; i<ZoneListArr.length; i++){
+        ZoneListSimple.push(ZoneListArr[i].name);
+        if (ZoneListArr[i].isCoordinator) CoordListSimple.push(ZoneListArr[i].name);
+    }
+
+
+    dwmlog ("ZoneListArr: "+JSON.stringify(ZoneListArr),4);
     // check if a room is still in the list, if not, set to "inactive"
     $("javascript.0.SonosAPI.Rooms.*.name").each(function(id,index){
         let RoomName=getState(id).val;
         let ZoneName=RoomName;
 
-        if (ZoneListArr.includes(RoomName)){
+        if (ZoneListSimple.includes(RoomName)){
             dwmlog ("Room "+RoomName+" is active",4);
             createState(basePath+"."+ZoneName+".active",true,forceCreate,{ type: "boolean", name: "Set active state for "+RoomName});
         } else {
@@ -670,8 +747,9 @@ function processZones( AllZoneData, cbParam ) {
         }
     });    
 
-    dwmlog ("Zone List String: "+ZoneListArr.join(';'),4);
-    createOrSetState(AdapterId+".SonosAPI.RoomList",ZoneListArr.join(';'),forceCreate,{ type: "string", name: "Sonos zone list"});   
+    dwmlog ("Zone List String: "+ZoneListSimple.join(';'),4);
+    createOrSetState(AdapterId+".SonosAPI.RoomList",ZoneListSimple.join(';'),forceCreate,{ type: "string", name: "Sonos zone list"});   
+    createOrSetState(AdapterId+".SonosAPI.CoordinatorList",CoordListSimple.join(';'),forceCreate,{ type: "string", name: "Sonos coordinator list"});   
     createState(AdapterId+".SonosAPI.pauseAll",true,forceCreate,{ type: "boolean", name: "Pause all players", role: "button"});   
     createState(AdapterId+".SonosAPI.resumeAll",true,forceCreate,{ type: "boolean", name: "Resume all players", role: "button"});
 
@@ -702,6 +780,13 @@ function processFavorites(FavData, cbParam ){
     var FavListStr = FavData.join(';');
     // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,4);
     createOrSetState(AdapterId+".SonosAPI.FavList",FavListStr,forceCreate,{ type: 'string', name: "Sonos Favorites list"});
+}
+
+function processPlaylists(PlaylistData, cbParam ){
+    forceCreate=false;
+    var PlayListStr = PlaylistData.join(';');
+    // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,4);
+    createOrSetState(AdapterId+".SonosAPI.Playlists",PlayListStr,forceCreate,{ type: 'string', name: "Sonos Playlist list"});
 }
 
 function processMuteChange( MuteData ){
@@ -739,6 +824,10 @@ function requestAction(room,action,parameters,triggerId ){
 
 function requestFavorites(){
     requestSonosAPI('/favorites',processFavorites);
+}
+
+function requestPlaylists(){
+    requestSonosAPI('/playlists',processPlaylists);    
 }
 
 function collectRequestData(request, callback) {
@@ -836,4 +925,6 @@ onStop(function (callback) {
 server.listen(webHookPort);
 requestSonosZones();
 schedule('* * * * *',requestFavorites);
+schedule('13 * * * * *',requestPlaylists);
+
 setTimeout(createSubscribes,200);

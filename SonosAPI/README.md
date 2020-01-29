@@ -85,12 +85,13 @@ Die States sind
 - playpause (schaltet zwischen "Play" und "Pause" hin und her)
 - next
 - previous
-- setTVMode: 
+- setTVMode
 
 Darüber hinaus gibt es
 - clip: Spielt einen mp3 clip ab, dieser muss sich im "clip" Verzeichnis des SonosAPI Servers befinden.
 - say:  Benutzt die Text-To-Speech Funktionalität des SonosAPI Servers, die dafür natürlich korrekt konfiguriert sein muss.
 - favorite: Spielt einen Sonos-Favoriten ab
+- playlist: Spielt eine Playlist ab
 - sayEx: Erweiterte Funktionalität für say
 
 ### Verschiedene States
@@ -116,13 +117,14 @@ Die Clip- und Say-Funktionen benutzen als Lautstärke den Wert, der bei dem ents
 ### Globale Datenpunkte
 Es gibt ein paar globale Datenpunkte, die für alle Zonen (Räume) gelten:
 - FavList: Die Liste der Favoriten im System, durch einen ";" getrennt. Diese Favoritenliste kann in VIS in einem Dropdown Auswahl Element benutzt werden.
+- Playlists: Die Liste der Playlists im System, durch einen ";" getrennt. Diese Liste kann in VIS in einem Dropdown Auswahl Element benutzt werden.
 - RoomList: Liste der Räume/Zonen, durch ";" getrennt
+- CoordinatorList: Die Liste der Räume/Zonen, die gerade als Koordinator laufen, also entweder ungruppiert, oder als Koordinator einer Gruppe. 
 - clipAll: Spielt auf allen Sonos einen Clip ab.
 - sayAll: Ansagen mit dem TTS System auf allen Sonos
 - pauseAll: Stoppt alle Sonos
 - resumeAll: Spielt bei allen Sonos weiter. 
 - sayAllEx: Erweiterte Ansage auf allen Sonos.
-
 
 ### sayEx Funktion
 
@@ -208,9 +210,12 @@ Folgende Gruppenfunktionen werden aktuell vom Script unterstützt:
   durch Überprüfen des ".name" Datenpunkts - wenn der Coordinator NICHT gleich dem Namen ist, wird
   der Sonos durch einen anderen Sonos gemanagt. Das kann z.B. in VIS dadurch benutzt werden, Elemente
   für diesen Sonos auszublenden.
+  Wird dieser Wert überschrieben, wird die Zone mit dem Coordinator gruppiert. Ein Schreiben eines
+  leeren Strings bewirkt ein Verlassen der Gruppe.
 - groupVolume: Die Gruppenlautstärke sowie die Einzellautstärken in der Gruppe
   können gesetzt werden. Ist der Sonos nicht in einer Gruppe, ist die 
-  Gruppenlautstärke der normalen Lautstärke gleichgesetzt. 
+  Gruppenlautstärke der normalen Lautstärke gleichgesetzt.
+
 
 ### Erweiterte Funktionalität
 Die allermeisten Funktionen des Scripts rufen direkt die SonosAPI auf und spiegeln das Verhalten des SonosAPI Servers wieder.
@@ -232,15 +237,15 @@ In einigen Punkten jedoch wurde ein erweitertes Verhalten eingebaut:
   Track die elapsedTime immer auf "0" gesetzt. 
 
 - Die Funktionalität für Amazon Music, Spotify etc. ist (noch?) nicht implementiert.
-  Ein Workaround zum Starten von Amazon Music etc. ist die Aufnahme der Playlists oder Alben
+  Ein Workaround zum Starten von Amazon Music etc. ist die Aufnahme Alben
   in die Sonos Favorites.
-- Gruppierungsfunktionen sind noch nicht implementiert.
+- ~~Gruppierungsfunktionen sind noch nicht implementiert.~~
 - ~~Gruppen-Volume Funktionen sind noch nicht implementiert.~~
 - ~~keine Unterstützung von clipVolume bei clipAll/sayAll~~
 
 # Todos
 
-- Group Funktionalität: /join /leave, Coordinator List ...
+- ~~Group Funktionalität: /join /leave, Coordinator List ...~~
 - ~~Group Volume show/set~~
 - elapsedTime verbessern, das Script könnte hier selbst einen Zähler starten.
 - Amazon Music, Spotify
@@ -261,3 +266,7 @@ In einigen Punkten jedoch wurde ein erweitertes Verhalten eingebaut:
     - Setzen der TransportURI
     - TV Mode eingeführt (nur SPDIF an der Playbar), pause und pauseall workaround.
     - groupVolume (also Gruppenlautstärke) wird unterstützt.
+- Version 0.9.5
+    - playlists unterstützt
+    - favorites haben verändertes Verhalten (reset des action Datenpunkts)
+    - Gruppen unterstützt (setzen des Coordinators, Coordinator List)
