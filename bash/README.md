@@ -36,5 +36,18 @@ Basically, the commands always need some parameters set. The parameters can be s
 if not given there they are interactively asked on the terminal.
 
 Commands can be:
-- -backup\tBackup an iobroker container
+- -backup Backup an iobroker container - which is backing up the volume and database
+- -restore Restore a backup
+- -create Create a new IOB container
+- -clonevol Clone a docker volume
+- -status Show current status
+
+### Backup
+
+Parameters for backup are:
+- IOBCONTAINER  name of the container for backup.
+- BACKUP_IOBROKER if set to 1, will backup the volume of the container
+- BACKUP_MYSQL  if set to 1, will backup the mySQL database
+
+
 
