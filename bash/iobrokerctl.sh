@@ -326,7 +326,7 @@ createIOBContainer() {
                -e AVAHI=false \
                -e "PACKAGES=joe mc jq net-tools libfontconfig1 mysql-client" \
                -e "NODE_TLS_REJECT_UNAUTHORIZED=0" \
-               -e "OPENSSL_CONF=/etc/ssl/"
+               -e "OPENSSL_CONF=/etc/ssl/" \
                $IOBIMAGE
 }
 
