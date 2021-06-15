@@ -7,7 +7,7 @@ var debugchannel = 'info';
 var AdapterId = "javascript."+instance;
 var develMode = false;
 
-var version = "0.9.5";
+var version = "0.9.6";
 
 /**********************************************************************************************/
 // Modify these settings
@@ -777,16 +777,24 @@ function processVolumeChange ( VolumeData ){
 
 function processFavorites(FavData, cbParam ){
     forceCreate=false;
-    var FavListStr = FavData.join(';');
-    // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,4);
-    createOrSetState(AdapterId+".SonosAPI.FavList",FavListStr,forceCreate,{ type: 'string', name: "Sonos Favorites list"});
+    if (Array.isArray(FavData)){
+        var FavListStr = FavData.join(';');
+        // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,5);
+        createOrSetState(AdapterId+".SonosAPI.FavList",FavListStr,forceCreate,{ type: 'string', name: "Sonos Favorites list"});
+    } else {
+        dwmlog("SonosAPI processFavorites got invalid data: "+JSON.stringify(FavData),2,"warn");
+    }
 }
 
 function processPlaylists(PlaylistData, cbParam ){
     forceCreate=false;
-    var PlayListStr = PlaylistData.join(';');
-    // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,4);
-    createOrSetState(AdapterId+".SonosAPI.Playlists",PlayListStr,forceCreate,{ type: 'string', name: "Sonos Playlist list"});
+    if (Array.isArray(PlaylistData)){
+        var PlayListStr = PlaylistData.join(';');
+        // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,5);
+        createOrSetState(AdapterId+".SonosAPI.Playlists",PlayListStr,forceCreate,{ type: 'string', name: "Sonos Playlist list"});
+    } else {
+        dwmlog("SonosAPI processPlaylists got invalid data: "+JSON.stringify(PlaylistData),2,"warn");
+    }
 }
 
 function processMuteChange( MuteData ){
