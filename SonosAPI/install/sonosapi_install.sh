@@ -4,12 +4,61 @@ SONOSAPI_USER=sonosapi
 SONOSAPI_DIR=/opt/sonosapi
 SONOSAPI_SERVICE=sonosapi
 
-SONOSAPI_SERVICE_FILE=/etc/systemd/system/$SONOSAPI_SERVICE.service
+# get the variable requested
+getVariable()
+{
+  input=$1
+
+  # check if variable empty
+  if [ -z "${!input}" ];
+  then
+    # is empty
+    echo -n -e "Please input $input: "
+    read $1
+  fi
+}
+
+# get the variable requested without showing the input
+getVariableHidden()
+{
+  input=$1
+
+  # check if variable empty
+  if [ -z "${!input}" ];
+  then
+    # is empty
+    echo -n -e "Please input $input: "
+    read -s $1
+  fi
+}
+
+# parse arguments from the commandline
+parseArguments()
+{
+  for var in "$@"
+  do
+    if [[ $var == -* ]]
+    then
+      INTERNAL_MODE=$var
+    elif [[ $var == *=* ]]
+    then
+      sperateAt=$(expr index "$var" '=')
+      property=${var:0:$sperateAt - 1}
+      value=${var:$sperateAt}
+      declare -g ${property}=$value
+    fi
+  done
+}
+
+# start with parsing the arguments
+parseArguments "$@"
 
 sonosapi_user(){
-  useradd --system --home-dir $SONOSAPI_DIR --shell /bin/bash $SONOSAPI_USER
-  mkdir -p $SONOSAPI_DIR
-  chown $SONOSAPI_USER:$SONOSAPI_USER $SONOSAPI_DIR
+  # $1 - Username
+  # $2 - Directory
+  useradd --system --home-dir $2 --shell /bin/bash $1
+  mkdir -p $2
+  chown $1:$1 $2
 }
 
 
@@ -51,7 +100,27 @@ sonosapi_uninstall() {
     rm $SONOSAPI_SERVICE_FILE
 }
 
-# sonosapi_uninstall
-sonosapi_user
-sonosapi_install
-sonosapi_service
+if [ "$INTERNAL_MODE" = "-install" ];
+then 
+  echo -e "\nInstalling Sonos API"
+
+  getVariable SONOSAPI_USER
+  getVariable SONOSAPI_DIR
+  getVariable SONOSAPI_SERVICE
+  SONOSAPI_SERVICE_FILE=/etc/systemd/system/$SONOSAPI_SERVICE.service
+  
+  sonosapi_user $SONOSAPI_USER $SONOSAPI_DIR
+  sonosapi_install
+  sonosapi_service
+
+elif [ "$INTERNAL_MODE" = "-remove" ];
+then
+  echo -e "\nRemoving Sonos API"
+  getVariable SONOSAPI_USER
+  getVariable SONOSAPI_DIR
+  getVariable SONOSAPI_SERVICE
+  SONOSAPI_SERVICE_FILE=/etc/systemd/system/$SONOSAPI_SERVICE.service
+  sonosapi_uninstall
+fi
+
+
