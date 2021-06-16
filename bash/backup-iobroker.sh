@@ -9,4 +9,4 @@ IOBCONTAINER=iobroker-blue
 # scp iobroker-$TIMESTAMP.tar.gz werner@pelican:/ssd/data/iobroker
 # scp mysql-$TIMESTAMP.gz werner@pelican:/ssd/data/iobroker
 
-/home/werner/iobrokerctl.sh -backup IOBCONTAINER=$IOBCONTAINER BACKUP_IOBROKER=1 BACKUP_MYSQL=1
+./iobrokerctl.sh -backup IOBCONTAINER=$IOBCONTAINER BACKUP_IOBROKER=1 # BACKUP_MYSQL=1

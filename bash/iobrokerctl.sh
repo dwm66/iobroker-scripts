@@ -1,10 +1,21 @@
 #!/bin/bash
 
-IOBCTL_CONFIGFILE=~/.iobrokerctl.config
+if [ -z $IOBCTL_CONFIGFILE ]; then
+  IOBCTL_CONFIGFILE=~/.iobrokerctl.config
+fi
+
 IOBIMAGE_DEFAULT="buanet/iobroker:v4.2.0"
 
 if [ -f $IOBCTL_CONFIGFILE ]; then
-    source ~/.iobrokerctl.config
+    # echo -e "Reading config $IOBCTL_CONFIGFILE"
+    source $IOBCTL_CONFIGFILE
+else
+    echo -e "Configuration file $IOBCTL_CONFIGFILE not found"
+fi
+
+if [ -z $GPIMAGE ]; then
+    # echo -e "Setting GPIMAGE to alpine"
+    GPIMAGE=alpine
 fi
 
 if [ -z $TIMESTAMP ]; then
@@ -18,6 +29,9 @@ fi
 if [ -z $IOBCONTAINER_DEFAULT ]; then
     IOBCONTAINER_DEFAULT=iobroker-blue
 fi
+
+# this is the container internal backup directory, not the one for 
+# the backup command!
 if [ -z $BACKUPDIR_DEFAULT ]; then
     BACKUPDIR_DEFAULT=~/iobroker_backups
 fi
@@ -29,6 +43,10 @@ if [ -z $IOB_PREFIX ]; then
    IOB_PREFIX="iobroker"
 fi
 
+if [ -z $MYSQL_HOST ]; then
+    BACKUP_MYSQL=0
+fi
+
 if [ -z $MYSQL_USER ]; then
     BACKUP_MYSQL=0
 fi
@@ -36,6 +54,8 @@ fi
 if [ -z $MYSQL_PASSWORD ]; then
     BACKUP_MYSQL=0
 fi
+
+IMMEDIATE_RUN=1
 
 # IOBCONTAINER=iobroker
 # BACKUP_IOBROKER=1
@@ -51,9 +71,12 @@ print_config(){
     echo -e "\tConfig file: $IOBCTL_CONFIGFILE"
     echo -e "\tTimestamp: $TIMESTAMP"
     echo -e "\tIOB_PREFIX: $IOB_PREFIX"
+    echo -e "\tGPIMAGE: $GPIMAGE"
     echo -e "\tIOBIMAGE_DEFAULT: $IOBIMAGE_DEFAULT"
     echo -e "\tIOBVOLUME_DEFAULT: $IOBVOLUME_DEFAULT"
     echo -e "\tIOBCONTAINER_DEFAULT: $IOBCONTAINER_DEFAULT"
+    
+    echo -e "\tBACKUP_MYSQL: $BACKUP_MYSQL"
 }
 
 # get the variable requested
@@ -198,7 +221,7 @@ cloneVolume() {
                -t \
                -v $1:/from \
                -v $2:/to \
-               alpine ash -c "cd /from ; cp -av . /to"
+               $GPIMAGE ash -c "cd /from ; cp -av . /to"
 
 }
 
@@ -209,7 +232,7 @@ createIOBContainer() {
     
     getVariable IOBIMAGE $IOBIMAGE_DEFAULT
     getPrefixedVariable IOBCONTAINER $IOBCONTAINER_DEFAULT
-    
+
     if [ "$(docker container ls --filter name=^/$IOBCONTAINER$ --format='{{.ID}}')" != "" ] ; then
         # container is running!
         echo -e "Container is active, stopping ..."
@@ -298,7 +321,23 @@ createIOBContainer() {
         docker rename $IOBCONTAINER $IOB_OLDCONTAINER
     fi
 
+    getVariable IMMEDIATE_RUN 1
+    if [ "$IMMEDIATE_RUN" = "1" ]; then
+        run_iobroker
+    fi
+}
+
+run_iobroker(){
     # create container
+    
+    getVariable IOBIMAGE $IOBIMAGE_DEFAULT
+    getPrefixedVariable IOBCONTAINER $IOBCONTAINER_DEFAULT
+
+    if [ "$(docker container ls --filter name=^/$IOBCONTAINER$ --format='{{.ID}}')" != "" ] ; then
+        # container is running!
+        echo -e "Container is active, stopping ..."
+        docker stop $IOBCONTAINER
+    fi    
 
     NETPARAMS_HOST='--network host'
     NETPARAMS_ADMIN='--cap-add=NET_ADMIN'
@@ -312,9 +351,14 @@ createIOBContainer() {
 
     NETPARAMS_BRIDGED="$NETPARAMS_BASE $NETPARAMS_HOMEMATIC $NETPARAMS_SCRIPTS $NETPARAMS_SIMPLEAPI"
     
-    PARAMS_ZIGBEE="--device /dev/ttyACM0"
+    if [ -f /dev/ttyACM0 ]; then
+        PARAMS_ZIGBEE="--device /dev/ttyACM0"
+    else
+        echo -e "No Zigbee device configured!"
+    fi
+
     PARAMS_DEVICES=$PARAMS_ZIGBEE
-    
+
     docker run $NETPARAMS_BRIDGED \
                --restart unless-stopped \
                --name $IOBCONTAINER \
@@ -330,6 +374,16 @@ createIOBContainer() {
                $IOBIMAGE
 }
 
+iobroker-do-upgrade-host(){
+    if [ "$(docker container ls --filter name=^/$IOBCONTAINER$ --format='{{.ID}}')" != "" ] ; then
+        # container is running!
+        echo -e "Container is active, stopping ..."
+        docker stop $IOBCONTAINER
+    fi
+    
+    docker run --rm -v $IOBVOLUME:/opt/iobroker --entrypoint /bin/bash
+}
+
 backup_iob(){
     echo -e "\n Backup "
     getPrefixedVariable IOBCONTAINER $IOBCONTAINER_DEFAULT
@@ -338,13 +392,13 @@ backup_iob(){
 
     if [ "$BACKUP_IOBROKER" = "1" ]; then
     echo -e "\nBacking up ioBroker container $IOBCONTAINER ..."
-      docker run --rm --volumes-from $IOBCONTAINER -v $(pwd):/backup ubuntu tar czvf /backup/iobroker-$TIMESTAMP.tar.gz --exclude '/opt/iobroker/backups' /opt/iobroker
-      scp iobroker-$TIMESTAMP.tar.gz werner@pelican:/ssd/data/iobroker
+      docker run --rm --volumes-from $IOBCONTAINER -v $(pwd):/backup $GPIMAGE tar czvf /backup/iobroker-$TIMESTAMP.tar.gz --exclude '/opt/iobroker/backups' /opt/iobroker
+      # scp iobroker-$TIMESTAMP.tar.gz werner@pelican:/ssd/data/iobroker
     fi
     if [ "$BACKUP_MYSQL" = "1" ]; then
     echo -e "\nBacking up mySQL ... "
-      mysqldump -u $MYSQL_USER -p$MYSQL_PASSWORD --quick --single-transaction iobroker | gzip -9 > mysql-$TIMESTAMP.gz
-      scp mysql-$TIMESTAMP.gz werner@pelican:/ssd/data/iobroker
+      mysqldump -u $MYSQL_USER -p$MYSQL_PASSWORD -h$MYSQL_HOST --quick --single-transaction iobroker | gzip -9 > mysql-$TIMESTAMP.gz
+      # scp mysql-$TIMESTAMP.gz werner@pelican:/ssd/data/iobroker
     fi
 }
 
@@ -354,7 +408,35 @@ restore_iob(){
     getPrefixedVariable TARGETVOLUME iobroker-$TIMESTAMP
 
     docker volume create $TARGETVOLUME
-    docker run --rm -v $TARGETVOLUME:/recover/opt/iobroker/ -v $(pwd):/backup ubuntu bash -c "cd /recover && tar xvf /backup/$BACKUPFILE" > restore-$TIMESTAMP.log
+    docker run --rm -v $TARGETVOLUME:/recover/opt/iobroker/ -v $(pwd):/backup $GPIMAGE bash -c "cd /recover && tar xvf /backup/$BACKUPFILE" > restore-$TIMESTAMP.log
+}
+
+restore_mysql(){
+    echo -e "\n Restore MYSQL"
+    getVariable MYSQL_BACKUPFILE
+
+    
+}
+
+create_mysql_container(){
+    getVariable MYSQL_CONTAINER mysql-iobroker
+    MYSQL_VOLUME=mysql-iobroker-$TIMESTAMP
+    MYSQL_IMAGE="mysql:5.7"
+    INITFILE=/tmp/init.sql
+    
+    MYSQL_ROOT_PASS=TemProSp
+    
+    if [ -z MYSQL_USER ]; then
+        echo "MYSQL_USER not defined"
+        exit 1
+    fi
+
+    docker run -d --name mysql-iobroker -p 3306:3306 \
+        -e MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASS \
+        -e MYSQL_USER=$MYSQL_USER \
+        -e MYSQL_PASSWORD=$MYSQL_PASSWORD \
+        -e MYSQL_DATABASE=iobroker \
+        $MYSQL_IMAGE
 }
 
 purge(){
@@ -365,10 +447,13 @@ purge(){
     getVariable VERIFYPURGE "NO"
     
     if [ "$VERIFYPURGE" = "YES" ]; then
+        echo -e "Stopping container $IOBCONTAINER ... " 
         docker stop $IOBCONTAINER
         sleep 1
+        echo -e "Removing container $IOBCONTAINER ... " 
         docker rm $IOBCONTAINER
         sleep 1
+        echo -e "Removing volume $IOBVOLUME ... "
         docker volume rm $IOBVOLUME
     fi
 }
@@ -400,6 +485,10 @@ elif [ "$INTERNAL_MODE" = "-restore" ];
 then
     # restore volume
     restore_iob
+elif [ "$INTERNAL_MODE" = "-mysql_restore" ];
+then
+    # restore volume
+    create_mysql_container
 elif [ "$INTERNAL_MODE" = "-create" ];
 then
     createIOBContainer

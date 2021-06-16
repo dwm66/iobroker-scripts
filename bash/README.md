@@ -49,7 +49,8 @@ inside the script. The default file name for the config file is "~/.iobrokerctl.
 - TIMESTAMP The timestamp format. Default is set to $(date +%Y-%m-%d-%H%M%S%Z), which is Year-Month-Day-HourMinuteSeconds
 - IOBVOLUME_DEFAULT Default name for IOBroker volumes. This is set by default to iobroker-data-$(date +%Y%m%d), so its containing the creation date.
 - IOBCONTAINER_DEFAULT Default name for the container. Default is "iobroker-blue", to support a "blue/green" deployment scheme.
-- BACKUPDIR_DEFAULT Default directory for storing backups. Default is ~/iobroker_backups
+- BACKUPDIR_DEFAULT Default directory for storing backups. Default is ~/iobroker_backups. This is the backup directory which will be mounted as a volume to the iobroker container,
+  not for the backup option of this script.
 - SSH_DIR_DEFAULT Default directory for SSH keys. See below.
 - IOB_PREFIX Prefix for "prefixed variables", default "iobroker"
 - MYSQL_USER  User for mySQL database backup. If not set, database backups are disabled.
@@ -62,7 +63,9 @@ Parameters for backup are:
 - BACKUP_IOBROKER if set to 1, will backup the volume of the container
 - BACKUP_MYSQL  if set to 1, will backup the mySQL database
 
-The backup will store the volume backup in iobroker-$TIMESTAMP.tar.gz, the mySQL backup in mysql-$TIMESTAMP.tar.gz
+In order for the mySQL backup to work, the parameters MYSQL_HOST, MYSQL_USER and MYSQL_PASSWORD have to be set, either in the config or as environment variables.
+
+The backup will store the volume backup in iobroker-$TIMESTAMP.tar.gz, the mySQL backup in mysql-$TIMESTAMP.gz
 
 Example:
 ```
@@ -80,6 +83,8 @@ Parameters for restore are:
 
 ### Purge
 
+Purges a container and its associated volume. Attention: This is NOT recoverable.
+
 ### Create
 Creates a new IOBroker container. This functionality is supporting heavily a blue/green deployment scheme.
 
@@ -90,10 +95,16 @@ Parameters for create are:
 - BACKUPDIR Backup directory on the host, used inside the container to mount for the backupmodule. Default is BACKUPDIR_DEFAULT
 - SSH_DIR Direcory on the host containing SSH keys, mounted to the container. Default is SSH_DIR_DEFAULT
 - VOLUMEOPION Determine behavior if the volume name already exists.
-  - 0 do nothing
+  - 0 do nothing and simply use it
   - 1 create auto backup (default)
   - 2 clone volume and use new one (default if container name is "iobroker-blue", supporting blue/green)
-  
+
+There are some more advanced options:
+- IOB_USE_GREEN_VOLUME  In the case a "iobroker-green" container is running, you can set this option to "1"
+  in order to use the volume attached to this container instead of IOBVOLUME. VOLUMEOPTION will be set to 2 
+  automatically in this case.
+- IOB_OLDCONTAINER If the container name already exists, it will be renamed to IOB_OLDCONTAINER. If set, this name
+  should contain e.g. the timestamp in order to be unique.
 
 
 ### clonevol
@@ -126,3 +137,51 @@ local               iobroker_data_2
 ```
 
 ## Common tasks and use cases
+
+In general, this section will always assume the system is using some blue/green
+deployment scheme. What does this mean?
+
+The actual configuration is to be the "blue" version. This is where all the 
+daily work, updates etc. go.
+A configuration consists of the iobroker-container with its associated volume.
+Please be aware all the iobroker stuff, including the software is in the volume.
+The container gives basically the OS and node installation.
+
+In the "green" configuration, we keep the "last good" version. This is a 
+fallback: If something - anything goes wrong with the blue config, we simply
+switch over to green and have a working system back.
+Lets say you did some updates before you're going into a three week vacation
+and after two days you realize, the system broke down. You most likely have
+neither time nor possibility to dig into and find the problem.
+But you can easily switch to the last good version:
+
+```
+$ docker stop iobroker-blue
+$ docker run iobroker-green
+```
+
+### Daily backup
+
+A daily backup can store the current state of the iobroker volume in a tar.gz
+file and recover from there.
+
+```
+./iobrokerctl.sh -backup IOBCONTAINER=iobroker-blue BACKUP_IOBROKER=1 BACKUP_MYSQL=1
+```
+
+### Restore a backup
+
+The restore option recovers a .tar.gz file into a volume. Most likely, you want
+to run that in a new container, which ... also most likely, should replace
+the blue configuration.
+
+```
+export TIMESTAMP=$(date +%Y-%m-%d-%H%M%S%Z)
+export IOBCONTAINER=iobroker-blue
+
+./iobrokerctl.sh -restore BACKUPFILE=iobroker-2021-01-03.tar.gz TARGETVOLUME=iobroker-data-2020-07-01
+./iobrokerctl.sh -create IOBCONTAINER=iobroker-blue IOB_USE_GREEN_VOLUME=0 VOLUMEOPTION=0
+
+```
+
+docker run --rm -it --volumes-from iobroker-blue --entrypoint ./iobroker buanet/iobroker:v4.2.0 upgrade self
