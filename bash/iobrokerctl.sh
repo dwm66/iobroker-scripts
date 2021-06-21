@@ -351,7 +351,7 @@ run_iobroker(){
 
     NETPARAMS_BRIDGED="$NETPARAMS_BASE $NETPARAMS_HOMEMATIC $NETPARAMS_SCRIPTS $NETPARAMS_SIMPLEAPI"
     
-    if [ -f /dev/ttyACM0 ]; then
+    if [ -e /dev/ttyACM0 ]; then
         PARAMS_ZIGBEE="--device /dev/ttyACM0"
     else
         echo -e "No Zigbee device configured!"
@@ -518,6 +518,12 @@ then
 	echo -e "\t$0 -backup"
   echo -e "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
   print_config
+    if [ -e /dev/ttyACM0 ]; then
+        PARAMS_ZIGBEE="--device /dev/ttyACM0"
+    else
+        echo -e "No Zigbee device configured!"
+    fi
+
 else
   echo -e "ERROR: unknown mode ${INTERNAL_MODE}"
 fi
