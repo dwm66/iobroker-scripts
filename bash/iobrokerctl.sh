@@ -381,7 +381,7 @@ iobroker-do-upgrade-host(){
         docker stop $IOBCONTAINER
     fi
     
-    docker run --rm -v $IOBVOLUME:/opt/iobroker --entrypoint /bin/bash
+    @echo docker run --rm -v $IOBVOLUME:/opt/iobroker --entrypoint iobroker $IOBIMAGE upgrade self
 }
 
 backup_iob(){
@@ -417,6 +417,8 @@ restore_mysql(){
 
     
 }
+
+
 
 create_mysql_container(){
     getVariable MYSQL_CONTAINER mysql-iobroker

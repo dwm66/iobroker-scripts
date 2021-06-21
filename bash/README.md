@@ -185,3 +185,4 @@ export IOBCONTAINER=iobroker-blue
 ```
 
 docker run --rm -it --volumes-from iobroker-blue --entrypoint ./iobroker buanet/iobroker:v4.2.0 upgrade self
+docker run --rm -it -v iobroker-data-2021-06-21:/opt/iobroker --entrypoint ./iobroker buanet/iobroker:v4.2.0 upgrade self
