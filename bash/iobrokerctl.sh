@@ -4,7 +4,7 @@ if [ -z $IOBCTL_CONFIGFILE ]; then
   IOBCTL_CONFIGFILE=~/.iobrokerctl.config
 fi
 
-IOBIMAGE_DEFAULT="buanet/iobroker:v4.2.0"
+IOBIMAGE_DEFAULT="buanet/iobroker:v5.1.0"
 
 if [ -f $IOBCTL_CONFIGFILE ]; then
     # echo -e "Reading config $IOBCTL_CONFIGFILE"
@@ -15,7 +15,7 @@ fi
 
 if [ -z $GPIMAGE ]; then
     # echo -e "Setting GPIMAGE to alpine"
-    GPIMAGE=alpine
+    GPIMAGE=ubuntu
 fi
 
 if [ -z $TIMESTAMP ]; then
@@ -339,6 +339,14 @@ run_iobroker(){
         docker stop $IOBCONTAINER
     fi    
 
+    if [ "$UPGRADESTEP" == "host" ]; then
+        docker run --rm -v $IOBVOLUME:/opt/iobroker --entrypoint iobroker $IOBIMAGE upgrade self
+    fi
+
+    if [ "$UPGRADESTEP" == "nodeversion" ]; then
+        docker run --rm -v $IOBVOLUME:/opt/iobroker --entrypoint npm $IOBIMAGE rebuild
+    fi
+
     NETPARAMS_HOST='--network host'
     NETPARAMS_ADMIN='--cap-add=NET_ADMIN'
     
@@ -374,16 +382,6 @@ run_iobroker(){
                $IOBIMAGE
 }
 
-iobroker-do-upgrade-host(){
-    if [ "$(docker container ls --filter name=^/$IOBCONTAINER$ --format='{{.ID}}')" != "" ] ; then
-        # container is running!
-        echo -e "Container is active, stopping ..."
-        docker stop $IOBCONTAINER
-    fi
-    
-    @echo docker run --rm -v $IOBVOLUME:/opt/iobroker --entrypoint iobroker $IOBIMAGE upgrade self
-}
-
 backup_iob(){
     echo -e "\n Backup "
     getPrefixedVariable IOBCONTAINER $IOBCONTAINER_DEFAULT
@@ -417,8 +415,6 @@ restore_mysql(){
 
     
 }
-
-
 
 create_mysql_container(){
     getVariable MYSQL_CONTAINER mysql-iobroker
@@ -513,11 +509,11 @@ then
     purge
 elif [ -z "$INTERNAL_MODE" ];
 then
-  echo -e "~~~~~~~~~~~~~~~~~~~~ INFO ~~~~~~~~~~~~~~~~~~~~~~~~~"
-	echo -e "Backup ioBroker:"
-	echo -e "\t$0 -backup"
-  echo -e "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-  print_config
+    echo -e "~~~~~~~~~~~~~~~~~~~~ INFO ~~~~~~~~~~~~~~~~~~~~~~~~~"
+    echo -e "Backup ioBroker:"
+    echo -e "\t$0 -backup"
+    echo -e "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    print_config
     if [ -e /dev/ttyACM0 ]; then
         PARAMS_ZIGBEE="--device /dev/ttyACM0"
     else
@@ -525,5 +521,5 @@ then
     fi
 
 else
-  echo -e "ERROR: unknown mode ${INTERNAL_MODE}"
+    echo -e "ERROR: unknown mode ${INTERNAL_MODE}"
 fi
