@@ -111,8 +111,9 @@ There are some more advanced options:
 
 Clone an existing volume.
 Parameters for clonevol are:
-- 
-
+- SOURCEVOL Source volume
+- TARGETVOL Target volume
+Defaults asked will be the IOB default volume, and a target volume called iobroker-data-backup-$TIMESTAMP.
 
 ### Status
 This will return the current status of iobroker containers:
