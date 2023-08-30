@@ -186,5 +186,38 @@ export IOBCONTAINER=iobroker-blue
 
 ```
 
+### Update to a newer version of buanet/iobroker
+
+First of all, clone the volume of your running iobroker container. A version update (which is normally a version jump in nodejs) will have major impact, and should be done apart from the running system. So first, find out which volume is attached to your container (iobroker-blue, normally) and clone it:
+
+```
+./iobrokerctl.sh -clonevol SOURCEVOL=iobroker-data-2023-03-20 TARGETVOL=iobroker-data-2023-08-30
+```
+The names for source and target volume are examples, of course.
+
+Having the cloned container, we have now the possibility to start the new version of the container. We use a temporary container for that:
+
+```
+docker run --rm -it -v iobroker-data-2023-08-30:/opt/iobroker --entrypoint /bin/bash buanet/iobroker:v8.1.0
+```
+Using the --entrypoint option, we have now a shell on the temporary container, without starting iobroker.
+We can use now the reinstall.sh script to get everything up to date. Afterwards, the fixer should run:
+
+```
+> ./reinstall.sh
+> npm rebuild
+> ./iobroker fix
+```
+
+Afterwards, the new container can be started with a
+
+```
+./iobrokerctl.sh -create
+```
+
+
+### Scratchpad
+```
 docker run --rm -it --volumes-from iobroker-blue --entrypoint ./iobroker buanet/iobroker:v4.2.0 upgrade self
 docker run --rm -it -v iobroker-data-2021-06-21:/opt/iobroker --entrypoint ./iobroker buanet/iobroker:v4.2.0 upgrade self
+```
