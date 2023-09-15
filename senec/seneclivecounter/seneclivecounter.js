@@ -3,7 +3,7 @@ var debugchannel = 'info';
 var AdapterId = "javascript."+instance;
 var ChannelId = AdapterId+".Senec";
 
-var SenecAnlagenNr      = 172796;
+var SenecAnlagenNr      = 12345;
 
 var IdSet = {
     LIVE_PV_GEN: {
