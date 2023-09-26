@@ -10,7 +10,7 @@
 FROM ts_number as n 
 left join datapoints as d on d.id = n.id
 WHERE n.ts>$__unixEpochFrom()*1000 and n.ts<=$__unixEpochTo()*1000 
-and n.id=398
+and d.name="javascript.0.Senec.Statistic.LIVE_PV_GEN"
 group by time_sec 
 ORDER BY `time_sec` asc)
 union (
@@ -26,7 +26,7 @@ SELECT
 FROM ts_number as n 
 left join datapoints as d on d.id = n.id
 WHERE n.ts>$__unixEpochFrom()*1000 and n.ts<=$__unixEpochTo()*1000 
-and n.id=284
+and d.name="senec.0.STATISTIC.LIVE_PV_GEN"
 group by time_sec 
 ORDER BY `time_sec` asc
 )
