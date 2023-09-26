@@ -19,7 +19,7 @@ var IdSet = {
         senecStatisticLegacyId:   'senec.0.STATISTIC.LIVE_BAT_CHARGE',
         senecAPIDailyId:    'senec.0._api.Anlagen.'+SenecAnlagenNr+'.Dashboard.heute.speicherbeladung',
 
-        startupCorrectionOldId: 'senec.0._calc.LIVE_BAT_CHARGE.year', 
+        startupCorrectionOldId: 'senec.0._calc.LIVE_BAT_CHARGE_MASTER.year', 
         startupCorrectionNewId: 'senec.0._api.Anlagen.'+SenecAnlagenNr+'.Statistik.This Year.speicherbeladung'
     },
     LIVE_BAT_DISCHARGE: {
@@ -27,7 +27,7 @@ var IdSet = {
         senecStatisticLegacyId:   'senec.0.STATISTIC.LIVE_BAT_DISCHARGE',
         senecAPIDailyId:    'senec.0._api.Anlagen.'+SenecAnlagenNr+'.Dashboard.heute.speicherentnahme',
 
-        startupCorrectionOldId: 'senec.0._calc.LIVE_BAT_DISCHARGE.year', 
+        startupCorrectionOldId: 'senec.0._calc.LIVE_BAT_DISCHARGE_MASTER.year', 
         startupCorrectionNewId: 'senec.0._api.Anlagen.'+SenecAnlagenNr+'.Statistik.This Year.speicherentnahme'
     },
     LIVE_GRID_EXPORT: {
@@ -127,7 +127,7 @@ class LiveStatisticCounter {
                     }
                     let catchupRecs = await this.createCatchUpRecs(liveStatState.val*this.senecLiveFactor+offset, liveStatState.ts);
                     dwmlog('LiveCounter : '+this.liveDataId+' catchup last rec: '+JSON.stringify(catchupRecs[catchupRecs.length-1]),4)
-                    // await this.writeCatchupRecs(catchupRecs);
+                    await this.writeCatchupRecs(catchupRecs);
                 }
             } // state does not exist
         } catch (err ){
@@ -237,7 +237,7 @@ class LiveStatisticCounter {
                     }
                 }
             }
-            dwmlog("catchup Result",4);
+            dwmlog("catchup Result"+JSON.stringify(res),4);
             return res;
 
         } catch (err) {
@@ -394,3 +394,8 @@ async function latestRecords(id,back=0, sqlAdapter='sql.0'){
 }
 
 LiveCounters.push(new LiveStatisticCounter( IdSet.LIVE_PV_GEN, true ));
+LiveCounters.push(new LiveStatisticCounter( IdSet.LIVE_BAT_CHARGE, true ));
+LiveCounters.push(new LiveStatisticCounter( IdSet.LIVE_BAT_DISCHARGE, true ));
+LiveCounters.push(new LiveStatisticCounter( IdSet.LIVE_HOUSE_CONS, true ));
+LiveCounters.push(new LiveStatisticCounter( IdSet.LIVE_GRID_EXPORT, true ));
+LiveCounters.push(new LiveStatisticCounter( IdSet.LIVE_GRID_IMPORT, true ));
