@@ -1,24 +1,24 @@
 var http = require('http');
 var url  = require('url');
 
-var debuglevel = 3;
+var debuglevel = 2;
 var debugchannel = 'info';
 
 var AdapterId = "javascript."+instance;
 var develMode = false;
 
-var version = "0.9.6";
+var version = "0.10.5";
 
 /**********************************************************************************************/
 // Modify these settings
 // BaseURL: the URL of the SonosAPI. Example: "http://10.22.1.40:5005"
-var BaseURL = "http://10.22.1.40:5005";
+var BaseURL = "https://10.22.1.40:5006";
 
 // SonosAPIAuth: Authentication data for the Sonos API, if there a user and password is 
 // declared.
 // Example: 
-// var SonosAPIAuth = "Basic " + new Buffer("username" + ":" + "Password123").toString("base64");
-var SonosAPIAuth = "Basic " + new Buffer("admin" + ":" + "12345678").toString("base64");
+var SonosAuthUser = "user";
+var SonosAuthPass = "Password123";
 
 // the port where this script should be reachable from the SonosAPI webhook mechanism.
 // example: 
@@ -35,7 +35,7 @@ var webHookPort = 1884;
 var SSMLMode = "Polly";
 
 // datapoint where the sayEx function can get the current temperature 
-var TempSensorId = "hm-rpc.0.ZEQ1234567.1.TEMPERATURE"/*Aussentemperatur Balkon:1.TEMPERATURE*/;
+var TempSensorId = "alias.0.Klima.Aussen.TEMPERATURE";
 
 // URL of a fallback album art picture
 var fallbackAlbumURL = '/icons-mfd-svg/audio_sound.svg';
@@ -45,8 +45,9 @@ var TVAlbumURL = '/icons-mfd-svg/it_television.svg';
 // If you don't want that behavior, set to 0.
 var resetFavoriteTime = 5;
 
-/**********************************************************************************************/
+var getaaurl = 'http://10.22.1.27:1400';
 
+/**********************************************************************************************/
 
 var basePath = AdapterId+".SonosAPI.Rooms";
 
@@ -56,43 +57,34 @@ var pauseTVBuffer = {};
 var VolumeTimeout = null;
 
 function requestSonosAPI( req, cb, cbParam ){
-
     var url = BaseURL+req;
     
     dwmlog("requestSonosAPI URL: "+url,3);
-    
     if (develMode) return;
 
-    request({  
-        uri: url,
-        method: "GET",
-        timeout: 120000,
-        followRedirect: true,
-        maxRedirects: 10,
-        headers : {
-            "Authorization" : SonosAPIAuth
-        }        
-    }, function(error, response, body) {
+    httpGet(url, { timeout: 120000, basicAuth: { user: SonosAuthUser, password: SonosAuthPass } }, (err, response) => {
         // dwmlog("Sonos Error " + error,2);
-        // dwmlog("Sonos Response: " + JSON.stringify(response,0,4),4);
-        // dwmlog("Sonos Body: " + body,4);
+        dwmlog("Sonos Response: " + JSON.stringify(response,0,4),5);
+        // dwmlog("Sonos Body: " + body,5);
         
-        if (error === null) {
-            if (cb) cb(JSON.parse(body),cbParam);             
+        if (!err) {
+            if (cb) cb(JSON.parse(response.data),cbParam);             
         } else {
-            dwmlog ("Error occured during SonosAPI call: "+error,2,"warn");
+            dwmlog ("Error occured during SonosAPI call: "+err,1,"warn");
         }
-    });        
+    });
 }
 
 function createOrSetState(name,value,forceCreate,spec){
     dwmlog("createOrSetState "+name+" to: "+value,5);
     if (value === undefined ) value = "n/a";
-    if (getState(name).notExist) {
-        dwmlog("Variable "+name+" undefined yet",4);
+    let state = getState(name);
+    if (state.notExist) {
+        dwmlog("Variable "+name+" undefined yet",5);
         createState(name,value,forceCreate,spec);
     } else {
-        setState(name,value,true);
+        if (state.val !== value || state.ack !== true )
+            setState(name,value,true);
     }
 }
 
@@ -105,7 +97,7 @@ function setStateProtected(dp,val,ack){
 
 function getAlbumUri(stateData,absolute){
     var result = "";
-    // dwmlog ("getAlbumUri: "+JSON.stringify(stateData),3);
+    dwmlog ("getAlbumUri: "+JSON.stringify(stateData),3);
     if (absolute) result = stateData.currentTrack.absoluteAlbumArtUri; 
     // else result = stateData.currentTrack.albumArtUri;
     
@@ -114,18 +106,27 @@ function getAlbumUri(stateData,absolute){
             result = url.parse(fallbackAlbumURL,true).pathname;
         }
     }
+    
     if (stateData.currentTrack.uri.startsWith("x-file-cifs")){
         result=fallbackAlbumURL;
     }
     if (isTVMode(stateData.currentTrack.uri)){
         result=TVAlbumURL;
     }
-    // dwmlog ("getAlbumUri returning: "+result,3);
+
+    if (stateData.currentTrack.absoluteAlbumArtUri == stateData.currentTrack.uri){
+        dwmlog("getAlbumUri mp3: "+stateData.currentTrack.absoluteAlbumArtUri+" == "+stateData.currentTrack.uri,3);
+        if (stateData.currentTrack.albumArtUri !== undefined) result=getaaurl+stateData.currentTrack.albumArtUri;
+        else {
+            result=getaaurl+'getaa?u='+encodeURIComponent(stateData.currentTrack.uri);
+        }
+    }
+    dwmlog ("getAlbumUri returning: "+result,3);
     return result;
 }
 
 function getNiceElement(stateElement,htmlElement){
-    result = "";
+    let result = "";
     if (stateElement !== undefined && stateElement !== null && stateElement != "" && !stateElement.includes('x-sonos')){
         if (htmlElement !== "")
             result = "<"+htmlElement+">"+stateElement+"</"+htmlElement+"><br/>";
@@ -168,22 +169,22 @@ function getNiceHTMLInfo(stateData) {
  */
 
 function isTVMode( uri ){
-    dwmlog ("isTVMode called with uri: "+uri,4);
+    dwmlog ("isTVMode called with uri: "+uri,5);
     if (typeof(uri)!=="string") return false;
-    result = uri.startsWith('x-sonos-htastream:') && uri.endsWith ('spdif');
+    let result = uri.startsWith('x-sonos-htastream:') && uri.endsWith ('spdif');
     return result;
 }
 
 function setTVModeBuffer(ZoneName, TVModeUri, sourceAction ){
     let data = { uri: TVModeUri, sourceAction: sourceAction };
     pauseTVBuffer[ZoneName] = data;
-    dwmlog ("setTVModeBuffer for "+ZoneName+" pauseTVBuffer is: "+JSON.stringify(pauseTVBuffer),4);    
+    dwmlog ("setTVModeBuffer for "+ZoneName+" pauseTVBuffer is: "+JSON.stringify(pauseTVBuffer),5);    
 }
 
 function checkTVModeDatapoint(ZoneName,stateData){
-    dwmlog("Checking TV mode for "+ZoneName+" and uri "+stateData.currentTrack.uri,4);
+    dwmlog("Checking TV mode for "+ZoneName+" and uri "+stateData.currentTrack.uri,5);
     if (isTVMode(stateData.currentTrack.uri)){
-        dwmlog ("TV mode detected",4);
+        dwmlog ("TV mode detected",5);
         if ( getState(basePath+"."+ZoneName+".action.setTVMode").notExist ){
             createState(basePath+"."+ZoneName+".action.setTVMode",true,forceCreate,{ type: "boolean", name: "setTVMode action for "+ZoneName, role: "button"});
             dwmlog("Created TVMode datapoint for "+ZoneName);
@@ -198,7 +199,7 @@ function calcTVModeUri (ZoneName){
 /************************************************************************************************/
 
 function processState(ZoneName,stateData){
-    dwmlog ("Sonos processState for Zone "+ZoneName+" with data: "+JSON.stringify(stateData),4);
+    dwmlog ("Sonos processState for Zone "+ZoneName+" with data: "+JSON.stringify(stateData),5);
     setStateProtected(basePath+"."+ZoneName+".state.volume",stateData.volume,true);
 
 
@@ -229,14 +230,14 @@ function processState(ZoneName,stateData){
 
     checkTVModeDatapoint(ZoneName, stateData );
 
-    dwmlog ("processState ends",4);
+    dwmlog ("processState ends",5);
 }
 
 function initSingleZone(zoneData,coordinator,members,forceCreate){
     if (forceCreate === undefined) forceCreate=false;
     // forceCreate=true;
 
-    dwmlog ("SingleZoneInit: "+JSON.stringify(zoneData),4);
+    dwmlog ("SingleZoneInit: "+JSON.stringify(zoneData),5);
     var ZoneName = zoneData.roomName;
     
     var group = zoneData.roomName;
@@ -313,11 +314,11 @@ function initZone(zoneData,forceCreate){
     var ZoneList = [];
 
     initSingleZone(zoneData.coordinator,zoneData.coordinator,forceCreate);
-    ZoneListObj={ name: zoneData.coordinator.roomName, isCoordinator: true,  members:[] };
+    let ZoneListObj={ name: zoneData.coordinator.roomName, isCoordinator: true,  members:[] };
 
     for (let i = 0; i<zoneData.members.length; i++){
         if (zoneData.members[i].uuid != zoneData.coordinator.uuid){
-            dwmlog("Group member for "+ZoneName+" detected: "+zoneData.members[i].roomName,4);
+            dwmlog("Group member for "+ZoneName+" detected: "+zoneData.members[i].roomName,5);
             initSingleZone(zoneData.members[i],zoneData.coordinator,forceCreate);
             ZoneListObj.members.push(zoneData.members[i].roomName);
             ZoneList.push({name: zoneData.members[i].roomName, isCoordinator: false, coordinator: ZoneListObj.name });
@@ -327,14 +328,21 @@ function initZone(zoneData,forceCreate){
     initSingleZone(zoneData.coordinator,zoneData.coordinator,ZoneListObj.members,forceCreate);    
     ZoneList.push(ZoneListObj);
 
-    dwmlog("ZoneList init: "+JSON.stringify(ZoneList),4);
+    dwmlog("ZoneList init: "+JSON.stringify(ZoneList),5);
     return ZoneList;
 }
 
 function getRoomFromObj(objName){
-    objPathArr = objName.split(".");
-    // dwmlog("Room is: "+objPathArr[4],4);
+    let objPathArr = objName.split(".");
+    // dwmlog("Room is: "+objPathArr[4],5);
     return objPathArr[4];
+}
+
+// get preset from path. Yes, its the same as for the rooms, 
+// nevertheless, lets treat it in a different function.
+function getPresetFromObj(objName){
+    let objPathArr = objName.split(".");
+    return objPathArr[4];    
 }
 
 /** 
@@ -344,18 +352,18 @@ function getRoomFromObj(objName){
  * This function should detect such a state, so that the "play" handler can act accordingly.
  */
 function canPlay(ZoneName){
-    result = true;
+    var result = true;
 
     let base=basePath+"."+ZoneName+".state.currentTrack.";
 
-    currentTrack={};
+    let currentTrack={};
     currentTrack.title=getState(base+"title").val;
     currentTrack.artist=getState(base+"artist").val;
     currentTrack.duration=getState(base+"duration").val;
     currentTrack.album=getState(base+"album").val;
     currentTrack.uri=getState(base+"uri").val;
 
-    dwmlog ("canPlay: currentTrack state for "+ZoneName+" is: "+JSON.stringify(currentTrack,null,4),4);
+    dwmlog ("canPlay: currentTrack state for "+ZoneName+" is: "+JSON.stringify(currentTrack,null,4),5);
     
     if ( currentTrack.title == "" 
         && currentTrack.artist == "" 
@@ -365,6 +373,9 @@ function canPlay(ZoneName){
 
         result = false;
     }
+
+    if (currentTrack.title.startsWith("polly-"))
+        result=false;
 
     return result;
 }
@@ -378,7 +389,7 @@ function isGroupedWith( ZoneName ){
         let RoomName = getRoomFromObj(id);
         if (getState(id).val == CoordinatorName) resultArr.push(RoomName);
     });
-    dwmlog("Group for "+ZoneName+" is "+JSON.stringify(resultArr),4);
+    dwmlog("Group for "+ZoneName+" is "+JSON.stringify(resultArr),5);
     return resultArr;
 }
 
@@ -399,7 +410,7 @@ function sayExtended (ZoneName, theObj ) {
     }
 
 
-    theTemp = Math.round(getState(TempSensorId).val);
+    let theTemp = Math.round(getState(TempSensorId).val);
     
     if (sayTime === undefined) sayTime = true;
     if (sayTemp === undefined) sayTemp = true;
@@ -425,7 +436,7 @@ function sayExtended (ZoneName, theObj ) {
     if (SSMLMode == "Polly")
         message = '<speak><prosody rate="90%">' + message + '</prosody></speak>';
     
-    dwmlog (message +" -- Länge: "+message.length,4);
+    dwmlog (message +" -- Länge: "+message.length,5);
     if (ZoneName=="all"){
         if (intro !== null ) {
             // setState(AdapterId+".SonosAPI.clipAll",intro);
@@ -443,17 +454,17 @@ function sayExtended (ZoneName, theObj ) {
 function createSubscribes(){
     // mute
     on({id: Array.prototype.slice.apply($(basePath+".*.action.mute")), val: true, ack: false, change:"any"}, function (obj) {
-        dwmlog("Mute action from "+JSON.stringify(obj),4);
+        dwmlog("Mute action from "+JSON.stringify(obj),5);
     });
     
     // play
     on({id: Array.prototype.slice.apply($(basePath+".*.action.play")), val: true, ack: false, change:"any"}, function (obj) {
-        dwmlog("Play action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("Play action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         let ZoneName=getRoomFromObj(obj.id);
         if (! canPlay(ZoneName) ){
             if ( pauseTVBuffer[ZoneName] !== undefined ) {
                 // its a "paused" Sonos, which was in TV Mode before
-                dwmlog ("TV mode workaround active - setting uri to "+pauseTVBuffer[ZoneName].uri,4);
+                dwmlog ("TV mode workaround active - setting uri to "+pauseTVBuffer[ZoneName].uri,5);
                 requestAction( getRoomFromObj(obj.id), "setavtransporturi", encodeURIComponent(pauseTVBuffer[ZoneName].uri), obj.id)
                 pauseTVBuffer[ZoneName] = undefined; // delete from Buffer afterwards
             } else {
@@ -473,7 +484,7 @@ function createSubscribes(){
 
     // pause
     on({id: Array.prototype.slice.apply($(basePath+".*.action.pause")), val: true, ack: false, change:"any"}, function (obj) {
-        dwmlog("Pause action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("Pause action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         
         // workaround: SPDIF TV mode cannot be paused, causing crashes in SonosAPI
         let ZoneName=getRoomFromObj(obj.id);
@@ -488,26 +499,26 @@ function createSubscribes(){
 
     // play
     on({id: Array.prototype.slice.apply($(basePath+".*.action.playpause")), val: true, ack: false, change:"any"}, function (obj) {
-        dwmlog("Toggle play action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("Toggle play action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         // TODO: canPlay - muss/soll man das hier ebenfalls einbinden?
         requestAction( getRoomFromObj(obj.id), "playpause", null, obj.id );
     });
 
     // next
     on({id: Array.prototype.slice.apply($(basePath+".*.action.next")), val: true, ack: false, change:"any"}, function (obj) {
-        dwmlog("Next action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("Next action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         requestAction( getRoomFromObj(obj.id), "next", null, obj.id );
     });
     
     // previous
     on({id: Array.prototype.slice.apply($(basePath+".*.action.previous")), val: true, ack: false, change:"any"}, function (obj) {
-        dwmlog("Previous action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("Previous action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         requestAction( getRoomFromObj(obj.id), "previous", null, obj.id );
     });
 
     // volume change
     on({id: Array.prototype.slice.apply($(basePath+".*.state.volume")), ack: false, change:"ne"}, function (obj) {
-        dwmlog("Volume change action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("Volume change action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         requestAction(  getRoomFromObj(obj.id), "volume", obj.state.val, obj.id)
     });
 
@@ -519,7 +530,7 @@ function createSubscribes(){
 
     // mute change
     on({id: Array.prototype.slice.apply($(basePath+".*.state.mute")), ack: false, change:"ne"}, function (obj) {
-        dwmlog("Mute change action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("Mute change action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         if (obj.state.val) 
             requestAction(  getRoomFromObj(obj.id), "mute", null, obj.id);
         else
@@ -528,7 +539,7 @@ function createSubscribes(){
 
     // repeat
     on({id: Array.prototype.slice.apply($(basePath+".*.state.playMode.repeat")), ack: false, change:"ne"}, function (obj) {
-        dwmlog("Playmode repeat action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("Playmode repeat action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         let valid=['none','one','all'];
         if (valid.includes(obj.state.val)){
             requestAction(  getRoomFromObj(obj.id), "repeat", obj.state.val, obj.id);
@@ -540,7 +551,7 @@ function createSubscribes(){
 
     // shuffle change
     on({id: Array.prototype.slice.apply($(basePath+".*.state.playMode.shuffle")), ack: false, change:"any"}, function (obj) {
-        dwmlog("Playmode shuffle action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("Playmode shuffle action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         if (obj.state.val){
             requestAction(  getRoomFromObj(obj.id), "shuffle", "on", obj.id)
         } else {
@@ -550,7 +561,7 @@ function createSubscribes(){
 
     // crossfade change
     on({id: Array.prototype.slice.apply($(basePath+".*.state.playMode.crossfade")), ack: false, change:"any"}, function (obj) {
-        dwmlog("Playmode crossfade action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("Playmode crossfade action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         if (obj.state.val){
             requestAction(  getRoomFromObj(obj.id), "crossfade", "on", obj.id)
         } else {
@@ -560,13 +571,13 @@ function createSubscribes(){
     
     // URI change
     on({id: Array.prototype.slice.apply($(basePath+".*.state.currentTrack.uri")), ack: false, change:"any"}, function (obj) {
-        dwmlog("URI set action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),4);
+        dwmlog("URI set action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id),5);
         requestAction(  getRoomFromObj(obj.id), "setavtransporturi", encodeURIComponent(obj.state.val), obj.id)
     });
 
     // say
     on({id: Array.prototype.slice.apply($(basePath+".*.action.say")), ack: false, change:"any"}, function (obj) {
-        dwmlog("Say action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" saying: "+encodeURIComponent(obj.state.val),4);
+        dwmlog("Say action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" saying: "+encodeURIComponent(obj.state.val),5);
         let ZoneName=getRoomFromObj(obj.id);
         let vol = getState(basePath+"."+ZoneName+".settings.clipVolume").val;
         requestAction(  getRoomFromObj(obj.id), "say", encodeURIComponent(obj.state.val)+'/'+vol, obj.id)
@@ -574,7 +585,7 @@ function createSubscribes(){
 
     // clip
     on({id: Array.prototype.slice.apply($(basePath+".*.action.clip")), ack: false, change:"any"}, function (obj) {
-        dwmlog("Clip action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" playing: "+encodeURIComponent(obj.state.val),4);
+        dwmlog("Clip action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" playing: "+encodeURIComponent(obj.state.val),5);
         let ZoneName=getRoomFromObj(obj.id);
         let vol = getState(basePath+"."+ZoneName+".settings.clipVolume").val;
         requestAction(  getRoomFromObj(obj.id), "clip", encodeURIComponent(obj.state.val)+'/'+vol, obj.id)
@@ -583,7 +594,7 @@ function createSubscribes(){
     // favorite
     on({id: Array.prototype.slice.apply($(basePath+".*.action.favorite")), ack: false, change:"any"}, function (obj) {
         let ZoneName=getRoomFromObj(obj.id);
-        dwmlog("Favorite action from "+JSON.stringify(obj)+" in Room "+ZoneName+" playing: "+encodeURIComponent(obj.state.val),4);
+        dwmlog("Favorite action from "+JSON.stringify(obj)+" in Room "+ZoneName+" playing: "+encodeURIComponent(obj.state.val),5);
         if (obj.state.val === "TVMode") {
             requestAction(  ZoneName, "setavtransporturi", encodeURIComponent(calcTVModeUri(ZoneName) ), obj.id)
         } else if (obj.state.val !== "") {
@@ -598,7 +609,7 @@ function createSubscribes(){
     // playlist
     on({id: Array.prototype.slice.apply($(basePath+".*.action.playlist")), ack: false, change:"any"}, function (obj) {
         let ZoneName=getRoomFromObj(obj.id);
-        dwmlog("Playlist action from "+JSON.stringify(obj)+" in Room "+ZoneName+" playing: "+encodeURIComponent(obj.state.val),4);
+        dwmlog("Playlist action from "+JSON.stringify(obj)+" in Room "+ZoneName+" playing: "+encodeURIComponent(obj.state.val),5);
         if (obj.state.val !== "") {
             requestAction(  ZoneName, "playlist", encodeURIComponent(obj.state.val), obj.id)
             setState(basePath+"."+ZoneName+".settings.lastPlaylist",obj.state.val,true);
@@ -608,13 +619,13 @@ function createSubscribes(){
 
     // trackseek
     on({id: Array.prototype.slice.apply($(basePath+".*.state.trackNo")), ack: false, change:"any"}, function (obj) {
-        dwmlog("Trackseek action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" jumping to: "+obj.state.val,4);
+        dwmlog("Trackseek action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" jumping to: "+obj.state.val,5);
         requestAction(  getRoomFromObj(obj.id), "trackseek", encodeURIComponent(obj.state.val), obj.id)
     });
 
     // simple playbackstate
     on({id: Array.prototype.slice.apply($(basePath+".*.state.playbackStateSimple")), ack: false, change:"any"}, function (obj) {
-        dwmlog("Simple playback state action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" setting to: "+obj.state.val,4);
+        dwmlog("Simple playback state action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" setting to: "+obj.state.val,5);
         if (obj.state.val){
             requestAction( getRoomFromObj(obj.id), "play", null, obj.id );        
         } else {
@@ -624,16 +635,16 @@ function createSubscribes(){
 
     // sayEx
     on({id: Array.prototype.slice.apply($(basePath+".*.action.sayEx")), ack: false, change:"any"}, function (obj) {
-        dwmlog("SayEx action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" saying: "+obj.state.val,4);
+        dwmlog("SayEx action from "+JSON.stringify(obj)+" in Room "+getRoomFromObj(obj.id)+" saying: "+obj.state.val,5);
         sayExtended(getRoomFromObj(obj.id), JSON.parse(obj.state.val));
     });
 
     // pauseAll
     on({id: AdapterId+".SonosAPI.pauseAll", val: true, change: "any"}, function(obj){
-        dwmlog ("PauseAll Action ",4);
+        dwmlog ("PauseAll Action ",5);
         let TVModesDetected = false;
         $(basePath+'.*.state.currentTrack.uri').each( function (id,i){
-            dwmlog("PauseAll checks URI: "+JSON.stringify(id),4);
+            dwmlog("PauseAll checks URI: "+JSON.stringify(id),5);
             let uri=getState(id).val;
             if (isTVMode(uri)){
                 let ZoneName = getRoomFromObj(id);
@@ -651,7 +662,7 @@ function createSubscribes(){
 
     // resumeAll
     on({id: AdapterId+".SonosAPI.resumeAll", val: true, change: "any"}, function(obj){
-        dwmlog ("resumeAll Action ",4);
+        dwmlog ("resumeAll Action ",5);
         requestSonosAPI('/resumeall');
 
         $(basePath+'.*.name').each(function (id,i){
@@ -686,7 +697,7 @@ function createSubscribes(){
     // TV mode
     on({id: Array.prototype.slice.apply($(basePath+".*.action.setTVMode")), val: true, change:"any"}, function (obj) {
         let ZoneName=getRoomFromObj(obj.id);
-        dwmlog("TV mode action from "+JSON.stringify(obj)+" in Room "+ZoneName,4);
+        dwmlog("TV mode action from "+JSON.stringify(obj)+" in Room "+ZoneName,5);
         if (obj.state.val !== "")
             requestAction(  ZoneName, "setavtransporturi", encodeURIComponent(calcTVModeUri(ZoneName) ), obj.id)
     });
@@ -694,11 +705,11 @@ function createSubscribes(){
    // coordinator, grouping
     on({id: Array.prototype.slice.apply($(basePath+".*.coordinator")), ack:false, change:"ne"}, function (obj) {
         let ZoneName=getRoomFromObj(obj.id);
-        dwmlog("Coordinator set from "+JSON.stringify(obj)+" in Room "+ZoneName,4);
-        coordinators = getState(AdapterId+".SonosAPI.CoordinatorList").val.split(";");
+        dwmlog("Coordinator set from "+JSON.stringify(obj)+" in Room "+ZoneName,5);
+        let coordinators = getState(AdapterId+".SonosAPI.CoordinatorList").val.split(";");
         if (obj.state.val !== ""){
             if (coordinators.includes(obj.state.val) && obj.state.val!=ZoneName){
-                dwmlog("Grouping: "+ZoneName+" joins "+obj.state.val,4);
+                dwmlog("Grouping: "+ZoneName+" joins "+obj.state.val,5);
                 requestAction( ZoneName, "join", [obj.state.val], obj.id );
             } else {
                 if (obj.state.val==ZoneName){
@@ -714,12 +725,12 @@ function createSubscribes(){
 }
 
 function processZones( AllZoneData, cbParam ) {
-    forceCreate = false;
+    let forceCreate = false;
 
-    dwmlog ("Zone Data: "+JSON.stringify(AllZoneData,null,4),4);
-    ZoneListArr=[];
-    ZoneListSimple=[];
-    CoordListSimple=[];
+    dwmlog ("Zone Data: "+JSON.stringify(AllZoneData,null,4),5);
+    let ZoneListArr=[];
+    let ZoneListSimple=[];
+    let CoordListSimple=[];
 
     for (let i=0; i<AllZoneData.length; i++){
         let ZoneResult = initZone(AllZoneData[i])
@@ -732,22 +743,22 @@ function processZones( AllZoneData, cbParam ) {
     }
 
 
-    dwmlog ("ZoneListArr: "+JSON.stringify(ZoneListArr),4);
+    dwmlog ("ZoneListArr: "+JSON.stringify(ZoneListArr),5);
     // check if a room is still in the list, if not, set to "inactive"
     $("javascript.0.SonosAPI.Rooms.*.name").each(function(id,index){
         let RoomName=getState(id).val;
         let ZoneName=RoomName;
 
         if (ZoneListSimple.includes(RoomName)){
-            dwmlog ("Room "+RoomName+" is active",4);
+            dwmlog ("Room "+RoomName+" is active",5);
             createState(basePath+"."+ZoneName+".active",true,forceCreate,{ type: "boolean", name: "Set active state for "+RoomName});
         } else {
-            dwmlog ("Room "+RoomName+" is NOT active",4);            
+            dwmlog ("Room "+RoomName+" is NOT active",5);            
             createState(basePath+"."+ZoneName+".active",false,forceCreate,{ type: "boolean", name: "Set active state for "+RoomName});
         }
     });    
 
-    dwmlog ("Zone List String: "+ZoneListSimple.join(';'),4);
+    dwmlog ("Zone List String: "+ZoneListSimple.join(';'),5);
     createOrSetState(AdapterId+".SonosAPI.RoomList",ZoneListSimple.join(';'),forceCreate,{ type: "string", name: "Sonos zone list"});   
     createOrSetState(AdapterId+".SonosAPI.CoordinatorList",CoordListSimple.join(';'),forceCreate,{ type: "string", name: "Sonos coordinator list"});   
     createState(AdapterId+".SonosAPI.pauseAll",true,forceCreate,{ type: "boolean", name: "Pause all players", role: "button"});   
@@ -760,13 +771,13 @@ function processZones( AllZoneData, cbParam ) {
 }
 
 function processVolumeChange ( VolumeData ){
-    dwmlog ("Process Volume Data: "+JSON.stringify(VolumeData,null,4),4);
+    dwmlog ("Process Volume Data: "+JSON.stringify(VolumeData,null,4),5);
     
     var ZoneName = VolumeData.roomName;
 
     setStateProtected(basePath+"."+ZoneName+".state.volume",VolumeData.newVolume,true);
     if (isGroupedWith(ZoneName).length>1){
-        dwmlog (ZoneName+" is grouped, requesting update of zones to get new group Volume",4);
+        dwmlog (ZoneName+" is grouped, requesting update of zones to get new group Volume",5);
         if (VolumeTimeout != null) clearTimeout(VolumeTimeout);
         VolumeTimeout = setTimeout(requestSonosZones,200);
     } else {
@@ -776,7 +787,7 @@ function processVolumeChange ( VolumeData ){
 }
 
 function processFavorites(FavData, cbParam ){
-    forceCreate=false;
+    let forceCreate=false;
     if (Array.isArray(FavData)){
         var FavListStr = FavData.join(';');
         // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,5);
@@ -787,7 +798,7 @@ function processFavorites(FavData, cbParam ){
 }
 
 function processPlaylists(PlaylistData, cbParam ){
-    forceCreate=false;
+    let forceCreate=false;
     if (Array.isArray(PlaylistData)){
         var PlayListStr = PlaylistData.join(';');
         // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,5);
@@ -797,8 +808,81 @@ function processPlaylists(PlaylistData, cbParam ){
     }
 }
 
+function createPresetSubscribe(presetName){
+    dwmlog ("creating subscribes for preset "+presetName,5);
+    on({id: AdapterId+".SonosAPI.Presets."+presetName+".set", val: true, change:"any"},function(obj){
+        let presetName=getPresetFromObj(obj.id)
+        dwmlog("Preset set action for preset "+presetName,3);
+        requestSonosAPI('/preset/'+presetName);
+    });
+
+    on({id: AdapterId+".SonosAPI.Presets."+presetName+".say", ack: false, change:"any"},function(obj){
+        let presetName=getPresetFromObj(obj.id)
+        dwmlog("Preset say action for preset "+presetName,3);
+        requestSonosAPI('/saypreset/'+presetName+'/'+obj.state.val);
+    });
+
+    on({id: AdapterId+".SonosAPI.Presets."+presetName+".clip", ack: false, change:"any"},function(obj){
+        let presetName=getPresetFromObj(obj.id)
+        dwmlog("Preset clip action for preset "+presetName,3);
+        requestSonosAPI('/clippreset/'+presetName+'/'+obj.state.val);
+    });
+
+}
+
+function createAllPresetSubscribes(){
+    $(AdapterId+'.SonosAPI.Presets.*.set').each(function(obj,i){
+        let preset=getPresetFromObj(obj);
+        createPresetSubscribe(preset);
+    });
+}
+
+function processPresets(PresetListData, cbParam ){
+    let forceCreate=false;
+    var PresetListStr = PresetListData.join(';');
+    // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,5);
+    createOrSetState(AdapterId+".SonosAPI.Presets.presetList",PresetListStr,forceCreate,{ type: 'string', name: "Sonos API presets list"});
+
+    let processedPresets=[];
+    $(AdapterId+'.SonosAPI.Presets.*.set').each(function(obj,i){
+        // dwmlog("processPresets - already in System: "+JSON.stringify(obj),5);
+        let preset = getPresetFromObj(obj);
+        if (PresetListData.includes(preset)){
+            dwmlog("Preset "+preset+" is in presets structure",5);
+        } else {
+            dwmlog("Preset "+preset+" not in presets any more",3);
+            unsubscribe(AdapterId+".SonosAPI.Presets."+preset+".set");
+            unsubscribe(AdapterId+".SonosAPI.Presets."+preset+".say");
+            unsubscribe(AdapterId+".SonosAPI.Presets."+preset+".clip");
+            setTimeout(deleteState,100,AdapterId+".SonosAPI.Presets."+preset+".set");
+            setTimeout(deleteState,100,AdapterId+".SonosAPI.Presets."+preset+".say");
+            setTimeout(deleteState,100,AdapterId+".SonosAPI.Presets."+preset+".clip");
+            setTimeout(deleteState,150,AdapterId+".SonosAPI.Presets."+preset);
+        }
+        processedPresets.push(preset);
+    });
+
+    var newPresets = PresetListData.filter(function(x) {
+        // checking second array does not contain element "x"
+        if(processedPresets.indexOf(x) == -1)
+            return true;
+        else
+            return false;
+    });
+
+    if (newPresets.length>0){
+        dwmlog("New presets are: "+JSON.stringify(newPresets),3);
+
+        newPresets.forEach(function(element,i){
+            createState(AdapterId+".SonosAPI.Presets."+element+".set",true,forceCreate,{ type: "boolean", name: "setting preset "+element, role: "button"});
+            createState(AdapterId+".SonosAPI.Presets."+element+".say",'',forceCreate,{ type: "string", name: "say for preset "+element });
+            createState(AdapterId+".SonosAPI.Presets."+element+".clip",'',forceCreate,{ type: "string", name: "clip for preset "+element });
+        });
+    }    
+}
+
 function processMuteChange( MuteData ){
-    dwmlog ("Process Mute Data: "+JSON.stringify(MuteData,null,4),4);
+    dwmlog ("Process Mute Data: "+JSON.stringify(MuteData,null,4),5);
     
     var ZoneName = MuteData.roomName;
 
@@ -830,6 +914,11 @@ function requestAction(room,action,parameters,triggerId ){
     requestSonosAPI(theURI);
 }
 
+function requestQueue(room){
+    let theURI = '/'+room+'/queue';
+    requestSonosAPI(theURI,processQueue);
+}
+
 function requestFavorites(){
     requestSonosAPI('/favorites',processFavorites);
 }
@@ -838,16 +927,20 @@ function requestPlaylists(){
     requestSonosAPI('/playlists',processPlaylists);    
 }
 
+function requestPresets(){
+    requestSonosAPI('/preset',processPresets);    
+}
+
 function collectRequestData(request, callback) {
     const FORM_JSONENCODED = 'application/json';
-    dwmlog ("Request headers:"+JSON.stringify(request.headers),4);
+    dwmlog ("Request headers:"+JSON.stringify(request.headers),5);
     if(request.headers['content-type'] === FORM_JSONENCODED) {
         let body = '';
         request.on('data', chunk => {
             body += chunk.toString();
         });
         request.on('end', () => {
-            // dwmlog ("collectRequestData got: "+body,4);
+            // dwmlog ("collectRequestData got: "+body,5);
             var theObj = null;
             try {
                 theObj=JSON.parse(body);
@@ -864,10 +957,10 @@ function collectRequestData(request, callback) {
 var server = http.createServer(function(req,res){
     var url_parts = url.parse(req.url, true);
 
-    dwmlog(JSON.stringify(url_parts),4);
+    dwmlog(JSON.stringify(url_parts),5);
     
     var pathsplit = url_parts.pathname.split("/");
-    dwmlog (JSON.stringify(pathsplit),4);
+    dwmlog (JSON.stringify(pathsplit),5);
     
     switch (req.method) {
         case 'POST':
@@ -934,5 +1027,7 @@ server.listen(webHookPort);
 requestSonosZones();
 schedule('* * * * *',requestFavorites);
 schedule('13 * * * * *',requestPlaylists);
+schedule('17 * * * * *',requestPresets);
 
 setTimeout(createSubscribes,200);
+setTimeout(createAllPresetSubscribes,300);
