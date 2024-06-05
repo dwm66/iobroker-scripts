@@ -7,7 +7,12 @@ var debugchannel = 'info';
 var AdapterId = "javascript."+instance;
 var develMode = false;
 
-var version = "0.10.5";
+var version = "0.11.1";
+
+var stateBasePath = AdapterId + '.SonosAPI';
+
+// untested, but should work:
+// var stateBasePath = '0_userdata.0.SonosAPI';
 
 /**********************************************************************************************/
 // Modify these settings
@@ -17,8 +22,11 @@ var BaseURL = "https://10.22.1.40:5006";
 // SonosAPIAuth: Authentication data for the Sonos API, if there a user and password is 
 // declared.
 // Example: 
-var SonosAuthUser = "user";
+var SonosAuthUser = "username";
 var SonosAuthPass = "Password123";
+
+// Deprecated, as Buffer itself is deprecated
+// var SonosAPIAuth = "Basic " + new Buffer("username" + ":" + "Password123").toString("base64");
 
 // the port where this script should be reachable from the SonosAPI webhook mechanism.
 // example: 
@@ -45,21 +53,58 @@ var TVAlbumURL = '/icons-mfd-svg/it_television.svg';
 // If you don't want that behavior, set to 0.
 var resetFavoriteTime = 5;
 
+// Album crap - base url
 var getaaurl = 'http://10.22.1.27:1400';
 
 /**********************************************************************************************/
 
-var basePath = AdapterId+".SonosAPI.Rooms";
+var basePath = stateBasePath+".Rooms";
 
 // intermediate storage for paused Sonos in TV mode
 // part of workaround for https://github.com/jishi/node-sonos-http-api/issues/741
 var pauseTVBuffer = {};
 var VolumeTimeout = null;
 
+/*
 function requestSonosAPI( req, cb, cbParam ){
+
     var url = BaseURL+req;
     
     dwmlog("requestSonosAPI URL: "+url,3);
+    
+    if (develMode) return;
+
+    let reqoptions = 
+
+    request({  
+        uri: url,
+        method: "GET",
+        timeout: 120000,
+        followRedirect: true,
+        maxRedirects: 10,
+        headers : {
+            "Authorization" : SonosAPIAuth
+        }        
+    }, function(error, response, body) {
+        // dwmlog("Sonos Error " + error,2);
+        dwmlog("Sonos Response: " + JSON.stringify(response,0,4),5);
+        // dwmlog("Sonos Body: " + body,5);
+        
+        if (error === null) {
+            if (cb) cb(JSON.parse(body),cbParam);             
+        } else {
+            dwmlog ("Error occured during SonosAPI call: "+error,1,"warn");
+        }
+    });        
+}
+*/
+
+function requestSonosAPI( req, cb, cbParam ){
+
+    var url = BaseURL+req;
+    
+    dwmlog("requestSonosAPI URL: "+url,3);
+    
     if (develMode) return;
 
     httpGet(url, { timeout: 120000, basicAuth: { user: SonosAuthUser, password: SonosAuthPass } }, (err, response) => {
@@ -73,6 +118,7 @@ function requestSonosAPI( req, cb, cbParam ){
             dwmlog ("Error occured during SonosAPI call: "+err,1,"warn");
         }
     });
+
 }
 
 function createOrSetState(name,value,forceCreate,spec){
@@ -385,7 +431,7 @@ function isGroupedWith( ZoneName ){
     let resultArr = [];
     let CoordinatorName = getState(basePath+"."+ZoneName+".coordinator").val;
     dwmlog ("Searching group for "+ZoneName+" having coordinator "+CoordinatorName,4 );
-    $("javascript.0.SonosAPI.Rooms.*.coordinator").each(function(id,index){
+    $(stateBasePath+".Rooms.*.coordinator").each(function(id,index){
         let RoomName = getRoomFromObj(id);
         if (getState(id).val == CoordinatorName) resultArr.push(RoomName);
     });
@@ -439,10 +485,10 @@ function sayExtended (ZoneName, theObj ) {
     dwmlog (message +" -- Länge: "+message.length,5);
     if (ZoneName=="all"){
         if (intro !== null ) {
-            // setState(AdapterId+".SonosAPI.clipAll",intro);
+            // setState(stateBasePath+".clipAll",intro);
         }
-        // setStateDelayed(AdapterId+".SonosAPI.sayAll",message,messagedelay);
-        setState(AdapterId+".SonosAPI.sayAll",message);
+        // setStateDelayed(stateBasePath+".sayAll",message,messagedelay);
+        setState(stateBasePath+".sayAll",message);
     } else {
         if (intro !== null ) {
             setState(basePath+'.'+ZoneName+".action.clip",intro);
@@ -473,7 +519,7 @@ function createSubscribes(){
                     newfav = getState(basePath+"."+ZoneName+".settings.defaultFavorite").val;   
                 }
                 if (newfav == ""){
-                    let FavList = getState(AdapterId+".SonosAPI.FavList").val;
+                    let FavList = getState(stateBasePath+".FavList").val;
                     newfav=FavList.split(';')[0];
                 } 
                 setState(basePath+"."+ZoneName+".action.favorite",newfav,false);
@@ -640,7 +686,7 @@ function createSubscribes(){
     });
 
     // pauseAll
-    on({id: AdapterId+".SonosAPI.pauseAll", val: true, change: "any"}, function(obj){
+    on({id: stateBasePath+".pauseAll", val: true, change: "any"}, function(obj){
         dwmlog ("PauseAll Action ",5);
         let TVModesDetected = false;
         $(basePath+'.*.state.currentTrack.uri').each( function (id,i){
@@ -661,7 +707,7 @@ function createSubscribes(){
     });
 
     // resumeAll
-    on({id: AdapterId+".SonosAPI.resumeAll", val: true, change: "any"}, function(obj){
+    on({id: stateBasePath+".resumeAll", val: true, change: "any"}, function(obj){
         dwmlog ("resumeAll Action ",5);
         requestSonosAPI('/resumeall');
 
@@ -675,21 +721,21 @@ function createSubscribes(){
     });
 
     // clipAll
-    on({id: AdapterId+".SonosAPI.clipAll", ack: false, change: "any"}, function(obj){
+    on({id: stateBasePath+".clipAll", ack: false, change: "any"}, function(obj){
         dwmlog("Clip ALL action, playing: "+encodeURIComponent(obj.state.val),3);
-        let vol=getState(AdapterId+".SonosAPI.genericSettings.clipAllVolume").val;
+        let vol=getState(stateBasePath+".genericSettings.clipAllVolume").val;
         requestSonosAPI("/clipall/"+encodeURIComponent(obj.state.val)+'/'+vol);        
     });
 
     // sayAll
-    on({id: AdapterId+".SonosAPI.sayAll", ack: false, change: "any"}, function(obj){
+    on({id: stateBasePath+".sayAll", ack: false, change: "any"}, function(obj){
         dwmlog("Say ALL action, playing: "+encodeURIComponent(obj.state.val),3);
-        let vol=getState(AdapterId+".SonosAPI.genericSettings.clipAllVolume").val;
+        let vol=getState(stateBasePath+".genericSettings.clipAllVolume").val;
         requestSonosAPI("/sayall/"+encodeURIComponent(obj.state.val)+'/'+vol);        
     });
 
     // sayAllEx
-    on({id: AdapterId+".SonosAPI.sayAllEx", ack: false, change: "any"}, function(obj){
+    on({id: stateBasePath+".sayAllEx", ack: false, change: "any"}, function(obj){
         dwmlog("SayAllEx action, playing: "+obj.state.val,3);
         sayExtended("all", JSON.parse(obj.state.val));
     });
@@ -706,7 +752,7 @@ function createSubscribes(){
     on({id: Array.prototype.slice.apply($(basePath+".*.coordinator")), ack:false, change:"ne"}, function (obj) {
         let ZoneName=getRoomFromObj(obj.id);
         dwmlog("Coordinator set from "+JSON.stringify(obj)+" in Room "+ZoneName,5);
-        let coordinators = getState(AdapterId+".SonosAPI.CoordinatorList").val.split(";");
+        let coordinators = getState(stateBasePath+".CoordinatorList").val.split(";");
         if (obj.state.val !== ""){
             if (coordinators.includes(obj.state.val) && obj.state.val!=ZoneName){
                 dwmlog("Grouping: "+ZoneName+" joins "+obj.state.val,5);
@@ -745,7 +791,7 @@ function processZones( AllZoneData, cbParam ) {
 
     dwmlog ("ZoneListArr: "+JSON.stringify(ZoneListArr),5);
     // check if a room is still in the list, if not, set to "inactive"
-    $("javascript.0.SonosAPI.Rooms.*.name").each(function(id,index){
+    $(stateBasePath+".Rooms.*.name").each(function(id,index){
         let RoomName=getState(id).val;
         let ZoneName=RoomName;
 
@@ -759,15 +805,15 @@ function processZones( AllZoneData, cbParam ) {
     });    
 
     dwmlog ("Zone List String: "+ZoneListSimple.join(';'),5);
-    createOrSetState(AdapterId+".SonosAPI.RoomList",ZoneListSimple.join(';'),forceCreate,{ type: "string", name: "Sonos zone list"});   
-    createOrSetState(AdapterId+".SonosAPI.CoordinatorList",CoordListSimple.join(';'),forceCreate,{ type: "string", name: "Sonos coordinator list"});   
-    createState(AdapterId+".SonosAPI.pauseAll",true,forceCreate,{ type: "boolean", name: "Pause all players", role: "button"});   
-    createState(AdapterId+".SonosAPI.resumeAll",true,forceCreate,{ type: "boolean", name: "Resume all players", role: "button"});
+    createOrSetState(stateBasePath+".RoomList",ZoneListSimple.join(';'),forceCreate,{ type: "string", name: "Sonos zone list"});   
+    createOrSetState(stateBasePath+".CoordinatorList",CoordListSimple.join(';'),forceCreate,{ type: "string", name: "Sonos coordinator list"});   
+    createState(stateBasePath+".pauseAll",true,forceCreate,{ type: "boolean", name: "Pause all players", role: "button"});   
+    createState(stateBasePath+".resumeAll",true,forceCreate,{ type: "boolean", name: "Resume all players", role: "button"});
 
-    createState(AdapterId+".SonosAPI.sayAll","",forceCreate,{ type: "string", name: "say on all players"}); 
-    createState(AdapterId+".SonosAPI.clipAll","",forceCreate,{ type: "string", name: "clip on all players"}); 
-    createState(AdapterId+".SonosAPI.sayAllEx","",forceCreate,{ type: "string", name: "say on all players, extended"});
-    createState(AdapterId+".SonosAPI.genericSettings.clipAllVolume",40,forceCreate,{ type: "number", name: "SonosAPI clipAll Volume"}); 
+    createState(stateBasePath+".sayAll","",forceCreate,{ type: "string", name: "say on all players"}); 
+    createState(stateBasePath+".clipAll","",forceCreate,{ type: "string", name: "clip on all players"}); 
+    createState(stateBasePath+".sayAllEx","",forceCreate,{ type: "string", name: "say on all players, extended"});
+    createState(stateBasePath+".genericSettings.clipAllVolume",40,forceCreate,{ type: "number", name: "SonosAPI clipAll Volume"}); 
 }
 
 function processVolumeChange ( VolumeData ){
@@ -791,7 +837,7 @@ function processFavorites(FavData, cbParam ){
     if (Array.isArray(FavData)){
         var FavListStr = FavData.join(';');
         // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,5);
-        createOrSetState(AdapterId+".SonosAPI.FavList",FavListStr,forceCreate,{ type: 'string', name: "Sonos Favorites list"});
+        createOrSetState(stateBasePath+".FavList",FavListStr,forceCreate,{ type: 'string', name: "Sonos Favorites list"});
     } else {
         dwmlog("SonosAPI processFavorites got invalid data: "+JSON.stringify(FavData),2,"warn");
     }
@@ -802,7 +848,7 @@ function processPlaylists(PlaylistData, cbParam ){
     if (Array.isArray(PlaylistData)){
         var PlayListStr = PlaylistData.join(';');
         // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,5);
-        createOrSetState(AdapterId+".SonosAPI.Playlists",PlayListStr,forceCreate,{ type: 'string', name: "Sonos Playlist list"});
+        createOrSetState(stateBasePath+".Playlists",PlayListStr,forceCreate,{ type: 'string', name: "Sonos Playlist list"});
     } else {
         dwmlog("SonosAPI processPlaylists got invalid data: "+JSON.stringify(PlaylistData),2,"warn");
     }
@@ -810,19 +856,19 @@ function processPlaylists(PlaylistData, cbParam ){
 
 function createPresetSubscribe(presetName){
     dwmlog ("creating subscribes for preset "+presetName,5);
-    on({id: AdapterId+".SonosAPI.Presets."+presetName+".set", val: true, change:"any"},function(obj){
+    on({id: stateBasePath+".Presets."+presetName+".set", val: true, change:"any"},function(obj){
         let presetName=getPresetFromObj(obj.id)
         dwmlog("Preset set action for preset "+presetName,3);
         requestSonosAPI('/preset/'+presetName);
     });
 
-    on({id: AdapterId+".SonosAPI.Presets."+presetName+".say", ack: false, change:"any"},function(obj){
+    on({id: stateBasePath+".Presets."+presetName+".say", ack: false, change:"any"},function(obj){
         let presetName=getPresetFromObj(obj.id)
         dwmlog("Preset say action for preset "+presetName,3);
         requestSonosAPI('/saypreset/'+presetName+'/'+obj.state.val);
     });
 
-    on({id: AdapterId+".SonosAPI.Presets."+presetName+".clip", ack: false, change:"any"},function(obj){
+    on({id: stateBasePath+".Presets."+presetName+".clip", ack: false, change:"any"},function(obj){
         let presetName=getPresetFromObj(obj.id)
         dwmlog("Preset clip action for preset "+presetName,3);
         requestSonosAPI('/clippreset/'+presetName+'/'+obj.state.val);
@@ -831,7 +877,7 @@ function createPresetSubscribe(presetName){
 }
 
 function createAllPresetSubscribes(){
-    $(AdapterId+'.SonosAPI.Presets.*.set').each(function(obj,i){
+    $(stateBasePath+'.Presets.*.set').each(function(obj,i){
         let preset=getPresetFromObj(obj);
         createPresetSubscribe(preset);
     });
@@ -841,23 +887,23 @@ function processPresets(PresetListData, cbParam ){
     let forceCreate=false;
     var PresetListStr = PresetListData.join(';');
     // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,5);
-    createOrSetState(AdapterId+".SonosAPI.Presets.presetList",PresetListStr,forceCreate,{ type: 'string', name: "Sonos API presets list"});
+    createOrSetState(stateBasePath+".Presets.presetList",PresetListStr,forceCreate,{ type: 'string', name: "Sonos API presets list"});
 
     let processedPresets=[];
-    $(AdapterId+'.SonosAPI.Presets.*.set').each(function(obj,i){
+    $(stateBasePath+'.Presets.*.set').each(function(obj,i){
         // dwmlog("processPresets - already in System: "+JSON.stringify(obj),5);
         let preset = getPresetFromObj(obj);
         if (PresetListData.includes(preset)){
             dwmlog("Preset "+preset+" is in presets structure",5);
         } else {
             dwmlog("Preset "+preset+" not in presets any more",3);
-            unsubscribe(AdapterId+".SonosAPI.Presets."+preset+".set");
-            unsubscribe(AdapterId+".SonosAPI.Presets."+preset+".say");
-            unsubscribe(AdapterId+".SonosAPI.Presets."+preset+".clip");
-            setTimeout(deleteState,100,AdapterId+".SonosAPI.Presets."+preset+".set");
-            setTimeout(deleteState,100,AdapterId+".SonosAPI.Presets."+preset+".say");
-            setTimeout(deleteState,100,AdapterId+".SonosAPI.Presets."+preset+".clip");
-            setTimeout(deleteState,150,AdapterId+".SonosAPI.Presets."+preset);
+            unsubscribe(stateBasePath+".Presets."+preset+".set");
+            unsubscribe(stateBasePath+".Presets."+preset+".say");
+            unsubscribe(stateBasePath+".Presets."+preset+".clip");
+            setTimeout(deleteState,100,stateBasePath+".Presets."+preset+".set");
+            setTimeout(deleteState,100,stateBasePath+".Presets."+preset+".say");
+            setTimeout(deleteState,100,stateBasePath+".Presets."+preset+".clip");
+            setTimeout(deleteState,150,stateBasePath+".Presets."+preset);
         }
         processedPresets.push(preset);
     });
@@ -874,9 +920,9 @@ function processPresets(PresetListData, cbParam ){
         dwmlog("New presets are: "+JSON.stringify(newPresets),3);
 
         newPresets.forEach(function(element,i){
-            createState(AdapterId+".SonosAPI.Presets."+element+".set",true,forceCreate,{ type: "boolean", name: "setting preset "+element, role: "button"});
-            createState(AdapterId+".SonosAPI.Presets."+element+".say",'',forceCreate,{ type: "string", name: "say for preset "+element });
-            createState(AdapterId+".SonosAPI.Presets."+element+".clip",'',forceCreate,{ type: "string", name: "clip for preset "+element });
+            createState(stateBasePath+".Presets."+element+".set",true,forceCreate,{ type: "boolean", name: "setting preset "+element, role: "button"});
+            createState(stateBasePath+".Presets."+element+".say",'',forceCreate,{ type: "string", name: "say for preset "+element });
+            createState(stateBasePath+".Presets."+element+".clip",'',forceCreate,{ type: "string", name: "clip for preset "+element });
         });
     }    
 }
@@ -1006,7 +1052,7 @@ var server = http.createServer(function(req,res){
             let answer = { result: "error", message: "Unknown request"};
             if (pathsplit[0]=="" && pathsplit[1]=="info") {
                 code = 200;
-                answer = { code: 200, data: { version: version }};
+                let answer = { code: 200, data: { version: version }};
                 answer.data.sonosAPI=BaseURL;
                 answer.data.SSMLMode=SSMLMode;
             }
