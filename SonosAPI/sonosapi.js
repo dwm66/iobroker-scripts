@@ -7,7 +7,7 @@ var debugchannel = 'info';
 var AdapterId = "javascript."+instance;
 var develMode = false;
 
-var version = "0.11.1";
+var version = "0.11.2";
 
 var stateBasePath = AdapterId + '.SonosAPI';
 
@@ -25,7 +25,6 @@ var BaseURL = "https://10.22.1.40:5006";
 var SonosAuthUser = "username";
 var SonosAuthPass = "Password123";
 
-// Deprecated, as Buffer itself is deprecated
 // var SonosAPIAuth = "Basic " + new Buffer("username" + ":" + "Password123").toString("base64");
 
 // the port where this script should be reachable from the SonosAPI webhook mechanism.
@@ -118,20 +117,21 @@ function requestSonosAPI( req, cb, cbParam ){
             dwmlog ("Error occured during SonosAPI call: "+err,1,"warn");
         }
     });
-
 }
 
 function createOrSetState(name,value,forceCreate,spec){
     dwmlog("createOrSetState "+name+" to: "+value,5);
     if (value === undefined ) value = "n/a";
-    let state = getState(name);
-    if (state.notExist) {
-        dwmlog("Variable "+name+" undefined yet",5);
-        createState(name,value,forceCreate,spec);
-    } else {
-        if (state.val !== value || state.ack !== true )
-            setState(name,value,true);
-    }
+    existsState(name,(err,isExists)=>{
+        if (!isExists) {
+            dwmlog("Variable "+name+" undefined yet",5);
+            createState(name,value,forceCreate,spec);
+        } else {
+            let state = getState(name);
+            if (state.val !== value || state.ack !== true )
+                setState(name,value,true);
+        }
+    })
 }
 
 function setStateProtected(dp,val,ack){
@@ -388,7 +388,7 @@ function getRoomFromObj(objName){
 // nevertheless, lets treat it in a different function.
 function getPresetFromObj(objName){
     let objPathArr = objName.split(".");
-    return objPathArr[4];    
+    return objPathArr[objPathArr.length - 2];  
 }
 
 /** 
@@ -883,10 +883,20 @@ function createAllPresetSubscribes(){
     });
 }
 
+function deleteStateIfExists(id) {
+    existsState(id,(err,isExists) => {
+        if (isExists) {
+            unsubscribe(id);
+            setTimeout(deleteState,50,id);
+        } else {
+            dwmlog('Trying to delete non-existing state '+id,2,"warn");
+        }
+    });
+}
+
 function processPresets(PresetListData, cbParam ){
     let forceCreate=false;
     var PresetListStr = PresetListData.join(';');
-    // dwmlog ("Process Favorites Data: "+JSON.stringify(FavData,null,4)+" gives List "+FavListStr,5);
     createOrSetState(stateBasePath+".Presets.presetList",PresetListStr,forceCreate,{ type: 'string', name: "Sonos API presets list"});
 
     let processedPresets=[];
@@ -894,16 +904,13 @@ function processPresets(PresetListData, cbParam ){
         // dwmlog("processPresets - already in System: "+JSON.stringify(obj),5);
         let preset = getPresetFromObj(obj);
         if (PresetListData.includes(preset)){
-            dwmlog("Preset "+preset+" is in presets structure",5);
+            dwmlog("Preset "+preset+" is in presets structure",4);
         } else {
-            dwmlog("Preset "+preset+" not in presets any more",3);
-            unsubscribe(stateBasePath+".Presets."+preset+".set");
-            unsubscribe(stateBasePath+".Presets."+preset+".say");
-            unsubscribe(stateBasePath+".Presets."+preset+".clip");
-            setTimeout(deleteState,100,stateBasePath+".Presets."+preset+".set");
-            setTimeout(deleteState,100,stateBasePath+".Presets."+preset+".say");
-            setTimeout(deleteState,100,stateBasePath+".Presets."+preset+".clip");
-            setTimeout(deleteState,150,stateBasePath+".Presets."+preset);
+            dwmlog("Preset "+preset+" not in presets any more, deleting subscribes and object",2);
+            deleteStateIfExists(stateBasePath+".Presets."+preset+".set");
+            deleteStateIfExists(stateBasePath+".Presets."+preset+".say");
+            deleteStateIfExists(stateBasePath+".Presets."+preset+".clip");
+            setTimeout(deleteStateIfExists,100,stateBasePath+".Presets."+preset);
         }
         processedPresets.push(preset);
     });
@@ -944,7 +951,6 @@ function requestSonosZones(){
     requestSonosAPI("/zones",processZones);    
 }
 
-
 function requestAction(room,action,parameters,triggerId ){
     let theURI = '/'+room+'/'+action;
     if ( parameters !== undefined && parameters !== null ){
@@ -960,6 +966,7 @@ function requestAction(room,action,parameters,triggerId ){
     requestSonosAPI(theURI);
 }
 
+// TODO!!
 function requestQueue(room){
     let theURI = '/'+room+'/queue';
     requestSonosAPI(theURI,processQueue);
