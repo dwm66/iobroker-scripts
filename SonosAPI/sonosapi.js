@@ -7,7 +7,7 @@ var debugchannel = 'info';
 var AdapterId = "javascript."+instance;
 var develMode = false;
 
-var version = "0.11.2";
+var version = "0.11.3";
 
 var stateBasePath = AdapterId + '.SonosAPI';
 
@@ -380,8 +380,9 @@ function initZone(zoneData,forceCreate){
 
 function getRoomFromObj(objName){
     let objPathArr = objName.split(".");
-    // dwmlog("Room is: "+objPathArr[4],5);
-    return objPathArr[4];
+    let basePathArrLen = stateBasePath.split(".").length+1;
+    // dwmlog("Room is: "+objPathArr[basePathArrLen],4);
+    return objPathArr[basePathArrLen];
 }
 
 // get preset from path. Yes, its the same as for the rooms, 
